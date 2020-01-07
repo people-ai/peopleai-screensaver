@@ -7,11 +7,13 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		761E9BB223C359F500BDD231 /* ai.people.screensaver.plist in Resources */ = {isa = PBXBuildFile; fileRef = 761E9BB123C359F500BDD231 /* ai.people.screensaver.plist */; };
 		76A5F89023C3334900197419 /* SlidesView.h in Headers */ = {isa = PBXBuildFile; fileRef = 76A5F88F23C3334900197419 /* SlidesView.h */; };
 		76A5F89223C3334900197419 /* SlidesView.m in Sources */ = {isa = PBXBuildFile; fileRef = 76A5F89123C3334900197419 /* SlidesView.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		761E9BB123C359F500BDD231 /* ai.people.screensaver.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = ai.people.screensaver.plist; sourceTree = "<group>"; };
 		76A5F88C23C3334900197419 /* Slides.saver */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = Slides.saver; sourceTree = BUILT_PRODUCTS_DIR; };
 		76A5F88F23C3334900197419 /* SlidesView.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SlidesView.h; sourceTree = "<group>"; };
 		76A5F89123C3334900197419 /* SlidesView.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = SlidesView.m; sourceTree = "<group>"; };
@@ -32,6 +34,7 @@
 		76A5F88223C3334900197419 = {
 			isa = PBXGroup;
 			children = (
+				761E9BB123C359F500BDD231 /* ai.people.screensaver.plist */,
 				76A5F88E23C3334900197419 /* Slides */,
 				76A5F88D23C3334900197419 /* Products */,
 			);
@@ -124,6 +127,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				761E9BB223C359F500BDD231 /* ai.people.screensaver.plist in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
