@@ -17,6 +17,8 @@ const NSString *maxSlidesKey = @"maxSlides";
 
 const NSString *configFile = @"ai.people.screensaver";
 
+const NSString *modeMinimal = @"minimal";
+
 const NSString *configError = @"<html><body><b>Error while loading config file</b></body></html>";
 const NSString *noMoreSlidesError = @"<html><body><b>No more slides</b></body></html>";
 

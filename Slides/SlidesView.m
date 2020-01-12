@@ -63,7 +63,7 @@
     NSNumber *stayOnSlideTime = mainConfiguration[timeKey];
     NSNumber *max = mainConfiguration[maxSlidesKey];
     
-    if (resetSlidesWhenStarted.boolValue) {
+    if (resetSlidesWhenStarted && resetSlidesWhenStarted.boolValue) {
         self.currentSlide = 0;
     } else {
         NSNumber *slide = [[NSUserDefaults standardUserDefaults] objectForKey:currentSlideKey];
@@ -91,7 +91,7 @@
 
 - (void)reloadPage {
     if (self.baseLink) {
-        NSString *link = [self create:self.baseLink Mode:@"minimal" slide:self.currentSlide];
+        NSString *link = [self create:self.baseLink Mode:modeMinimal slide:self.currentSlide];
         if (link) {
             NSURLRequest *request = [[NSURLRequest alloc] initWithURL:[NSURL URLWithString:link]];
             [self.webView loadRequest:request];
