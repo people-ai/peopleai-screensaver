@@ -8,6 +8,8 @@
 
 #import "SlidesView.h"
 
+static BOOL mdmMode = true;
+
 @implementation SlidesView
 
 - (instancetype)initWithFrame:(NSRect)frame isPreview:(BOOL)isPreview {
@@ -15,11 +17,18 @@
     if (self) {
         //[self setAnimationTimeInterval:1/30.0];
         
-        self.webView = [[WKWebView alloc] initWithFrame:CGRectMake(0, 0, frame.size.width, frame.size.height)];
+        self.webView = [[WKWebViewCustom alloc] initWithFrame:CGRectMake(0, 0, frame.size.width, frame.size.height)];
         [self addSubview:self.webView];
+        self.webView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
         
-        [self loadConfiguartion];
-        [self reloadPage];
+        if (mdmMode) {
+            //[self mdmTest];
+            //[self mdmClearForTest];
+            [self loadMdm];
+        } else {
+            [self loadConfiguartionFromBundle];
+            [self reloadPage];
+        }
         
     }
     return self;
@@ -38,12 +47,15 @@
 }
 
 - (void)animateOneFrame {
-    // do nothing
-    if (self.currentSlide < self.maxSlides) {
-        self.currentSlide ++;
-        [self reloadPage];
+    if (mdmMode) {
+        // do nothing
     } else {
-        [self loadInfoMessage:noMoreSlidesError];
+        if (self.currentSlide < self.maxSlides) {
+            self.currentSlide ++;
+            [self reloadPage];
+        } else {
+            [self loadInfoMessage:noMoreSlidesError];
+        }
     }
 }
 
@@ -55,7 +67,38 @@
     return nil;
 }
 
-- (void)loadConfiguartion {
+- (void)loadMdm {
+    NSString *moduleName = [NSBundle bundleForClass:self.class].bundleIdentifier;
+    NSUserDefaults *def = [[NSUserDefaults alloc] initWithSuiteName:moduleName];
+
+    NSString *link = [def stringForKey:urlKey];
+    //NSNumber *resetSlidesWhenStarted = [def objectForKey:resetKey];
+    NSNumber *stayOnSlideTime = [def objectForKey:timeKey];
+    NSNumber *zoom = [def objectForKey:zoomFullScreenKey];
+
+    if ((link != nil) && ![link isEqualToString:@""]) {
+        NSString *fullLink = [self createAutoplay:link time:stayOnSlideTime.intValue];
+        [self setAnimationTimeInterval:self.slideTime/1000]; // from ms to sec
+        NSURLRequest *request = [[NSURLRequest alloc] initWithURL:[NSURL URLWithString:fullLink]];
+        [self.webView loadRequest:request];
+                
+        zoom = @(true);
+        if (zoom.boolValue) {
+            // increase height by 10 %
+            CGFloat resizeWidth = 0.05; // resize
+            CGFloat resizeHeight = 0.05; // resize
+
+            [self.webView setFrame:NSMakeRect(-(resizeWidth*self.bounds.size.width), -(resizeHeight*self.bounds.size.height), self.bounds.size.width*(1+2*resizeWidth), self.bounds.size.height*(1 + 2 * resizeHeight))];
+        }
+        
+    } else {
+        NSString *msg = [NSString stringWithFormat:@"Error: link: %@, time: %@, moduleName: %@", link, stayOnSlideTime, moduleName];
+        //[self loadInfoMessage:msg];
+        [self loadInfoMessage:msg];
+    }
+}
+
+- (void)loadConfiguartionFromBundle {
     NSDictionary *mainConfiguration = [NSDictionary dictionaryWithContentsOfFile:[[NSBundle bundleWithIdentifier:@"com.test.Slides"] pathForResource:configFile ofType:@"plist" inDirectory:@""]];
 
     NSString *link = mainConfiguration[urlKey];
@@ -87,6 +130,10 @@
 
 - (NSString *)create:(NSString *)link Mode:(NSString *)mode slide:(int)slide {
     return [NSString stringWithFormat:@"%@/preview?rm=%@&slide=%i", link, mode, slide];
+}
+
+- (NSString *)createAutoplay:(NSString *)link time:(int)time {
+    return [NSString stringWithFormat:@"%@?rm=minimal&start=true&loop=true&delayms=%d", link, time];
 }
 
 - (void)reloadPage {

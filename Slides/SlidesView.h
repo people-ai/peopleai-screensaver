@@ -9,22 +9,25 @@
 #import <ScreenSaver/ScreenSaver.h>
 #import <WebKit/WebKit.h>
 
-const NSString *urlKey = @"slidesUrl";
-const NSString *resetKey = @"resetSlidesWhenStarted";
-const NSString *timeKey = @"stayOnSlideTime";
-const NSString *currentSlideKey = @"currentSlideKey";
-const NSString *maxSlidesKey = @"maxSlides";
+#import "WKWebViewCustom.h"
 
-const NSString *configFile = @"ai.people.screensaver";
+static NSString *urlKey = @"slidesUrl";
+static NSString *timeKey = @"stayOnSlideTime";
+static NSString *resetKey = @"resetSlidesWhenStarted";
+static NSString *currentSlideKey = @"currentSlideKey";
+static NSString *maxSlidesKey = @"maxSlides";
+static NSString *zoomFullScreenKey = @"zoomForFullScreen";
 
-const NSString *modeMinimal = @"minimal";
+static NSString *configFile = @"ai.people.screensaver";
 
-const NSString *configError = @"<html><body><b>Error while loading config file</b></body></html>";
-const NSString *noMoreSlidesError = @"<html><body><b>No more slides</b></body></html>";
+static NSString *modeMinimal = @"minimal";
+
+static NSString *configError = @"<html><body><b>Error while loading config file</b></body></html>";
+static NSString *noMoreSlidesError = @"<html><body><b>No more slides</b></body></html>";
 
 @interface SlidesView : ScreenSaverView
 
-@property (nonatomic, strong) WKWebView *webView;
+@property (nonatomic, strong) WKWebViewCustom *webView;
 
 @property (nonatomic, strong) NSString *baseLink;
 @property (nonatomic) int currentSlide;

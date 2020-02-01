@@ -7,14 +7,19 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		761E9BB223C359F500BDD231 /* ai.people.screensaver.plist in Resources */ = {isa = PBXBuildFile; fileRef = 761E9BB123C359F500BDD231 /* ai.people.screensaver.plist */; };
+		761AB74423D724FF007DD3FF /* WKWebViewCustom.h in Headers */ = {isa = PBXBuildFile; fileRef = 761AB74223D724FF007DD3FF /* WKWebViewCustom.h */; };
+		761AB74523D724FF007DD3FF /* WKWebViewCustom.m in Sources */ = {isa = PBXBuildFile; fileRef = 761AB74323D724FF007DD3FF /* WKWebViewCustom.m */; };
+		761DA42023DB03D800E0D90C /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 761DA41F23DB03D800E0D90C /* Cocoa.framework */; };
 		76A5F89023C3334900197419 /* SlidesView.h in Headers */ = {isa = PBXBuildFile; fileRef = 76A5F88F23C3334900197419 /* SlidesView.h */; };
 		76A5F89223C3334900197419 /* SlidesView.m in Sources */ = {isa = PBXBuildFile; fileRef = 76A5F89123C3334900197419 /* SlidesView.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		761E9BB123C359F500BDD231 /* ai.people.screensaver.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = ai.people.screensaver.plist; sourceTree = "<group>"; };
-		76A5F88C23C3334900197419 /* Slides.saver */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = Slides.saver; sourceTree = BUILT_PRODUCTS_DIR; };
+		761AB74223D724FF007DD3FF /* WKWebViewCustom.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = WKWebViewCustom.h; sourceTree = "<group>"; };
+		761AB74323D724FF007DD3FF /* WKWebViewCustom.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = WKWebViewCustom.m; sourceTree = "<group>"; };
+		761DA41D23DB00CC00E0D90C /* ScreenSaver.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ScreenSaver.framework; path = System/Library/Frameworks/ScreenSaver.framework; sourceTree = SDKROOT; };
+		761DA41F23DB03D800E0D90C /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = System/Library/Frameworks/Cocoa.framework; sourceTree = SDKROOT; };
+		76A5F88C23C3334900197419 /* People.ai.saver */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = People.ai.saver; sourceTree = BUILT_PRODUCTS_DIR; };
 		76A5F88F23C3334900197419 /* SlidesView.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SlidesView.h; sourceTree = "<group>"; };
 		76A5F89123C3334900197419 /* SlidesView.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = SlidesView.m; sourceTree = "<group>"; };
 		76A5F89323C3334900197419 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -25,25 +30,44 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				761DA42023DB03D800E0D90C /* Cocoa.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		761AB74123D724C1007DD3FF /* Categories */ = {
+			isa = PBXGroup;
+			children = (
+				761AB74223D724FF007DD3FF /* WKWebViewCustom.h */,
+				761AB74323D724FF007DD3FF /* WKWebViewCustom.m */,
+			);
+			path = Categories;
+			sourceTree = "<group>";
+		};
+		761DA41C23DB00CB00E0D90C /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				761DA41F23DB03D800E0D90C /* Cocoa.framework */,
+				761DA41D23DB00CC00E0D90C /* ScreenSaver.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		76A5F88223C3334900197419 = {
 			isa = PBXGroup;
 			children = (
-				761E9BB123C359F500BDD231 /* ai.people.screensaver.plist */,
 				76A5F88E23C3334900197419 /* Slides */,
 				76A5F88D23C3334900197419 /* Products */,
+				761DA41C23DB00CB00E0D90C /* Frameworks */,
 			);
 			sourceTree = "<group>";
 		};
 		76A5F88D23C3334900197419 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				76A5F88C23C3334900197419 /* Slides.saver */,
+				76A5F88C23C3334900197419 /* People.ai.saver */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -51,6 +75,7 @@
 		76A5F88E23C3334900197419 /* Slides */ = {
 			isa = PBXGroup;
 			children = (
+				761AB74123D724C1007DD3FF /* Categories */,
 				76A5F88F23C3334900197419 /* SlidesView.h */,
 				76A5F89123C3334900197419 /* SlidesView.m */,
 				76A5F89323C3334900197419 /* Info.plist */,
@@ -66,15 +91,16 @@
 			buildActionMask = 2147483647;
 			files = (
 				76A5F89023C3334900197419 /* SlidesView.h in Headers */,
+				761AB74423D724FF007DD3FF /* WKWebViewCustom.h in Headers */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXHeadersBuildPhase section */
 
 /* Begin PBXNativeTarget section */
-		76A5F88B23C3334900197419 /* Slides */ = {
+		76A5F88B23C3334900197419 /* People.ai */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 76A5F89623C3334900197419 /* Build configuration list for PBXNativeTarget "Slides" */;
+			buildConfigurationList = 76A5F89623C3334900197419 /* Build configuration list for PBXNativeTarget "People.ai" */;
 			buildPhases = (
 				76A5F88723C3334900197419 /* Headers */,
 				76A5F88823C3334900197419 /* Sources */,
@@ -85,9 +111,9 @@
 			);
 			dependencies = (
 			);
-			name = Slides;
+			name = People.ai;
 			productName = Slides;
-			productReference = 76A5F88C23C3334900197419 /* Slides.saver */;
+			productReference = 76A5F88C23C3334900197419 /* People.ai.saver */;
 			productType = "com.apple.product-type.bundle";
 		};
 /* End PBXNativeTarget section */
@@ -117,7 +143,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				76A5F88B23C3334900197419 /* Slides */,
+				76A5F88B23C3334900197419 /* People.ai */,
 			);
 		};
 /* End PBXProject section */
@@ -127,7 +153,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				761E9BB223C359F500BDD231 /* ai.people.screensaver.plist in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -138,6 +163,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				761AB74523D724FF007DD3FF /* WKWebViewCustom.m in Sources */,
 				76A5F89223C3334900197419 /* SlidesView.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -195,7 +221,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 10.14;
+				MACOSX_DEPLOYMENT_TARGET = 10.12;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -247,7 +273,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 10.14;
+				MACOSX_DEPLOYMENT_TARGET = 10.12;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = macosx;
@@ -257,13 +283,16 @@
 		76A5F89723C3334900197419 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_IDENTITY = "Developer ID Application";
+				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				DEVELOPMENT_TEAM = M796VVM8ZV;
+				DEVELOPMENT_TEAM = B865KYJU5B;
 				INFOPLIST_FILE = Slides/Info.plist;
 				INSTALL_PATH = "$(HOME)/Library/Screen Savers";
-				PRODUCT_BUNDLE_IDENTIFIER = com.test.Slides;
+				MACOSX_DEPLOYMENT_TARGET = 10.14;
+				PRODUCT_BUNDLE_IDENTIFIER = ai.people.screensaver;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				WRAPPER_EXTENSION = saver;
 			};
 			name = Debug;
@@ -271,13 +300,16 @@
 		76A5F89823C3334900197419 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_IDENTITY = "Developer ID Application";
+				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				DEVELOPMENT_TEAM = M796VVM8ZV;
+				DEVELOPMENT_TEAM = B865KYJU5B;
 				INFOPLIST_FILE = Slides/Info.plist;
 				INSTALL_PATH = "$(HOME)/Library/Screen Savers";
-				PRODUCT_BUNDLE_IDENTIFIER = com.test.Slides;
+				MACOSX_DEPLOYMENT_TARGET = 10.14;
+				PRODUCT_BUNDLE_IDENTIFIER = ai.people.screensaver;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				WRAPPER_EXTENSION = saver;
 			};
 			name = Release;
@@ -294,7 +326,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		76A5F89623C3334900197419 /* Build configuration list for PBXNativeTarget "Slides" */ = {
+		76A5F89623C3334900197419 /* Build configuration list for PBXNativeTarget "People.ai" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				76A5F89723C3334900197419 /* Debug */,
