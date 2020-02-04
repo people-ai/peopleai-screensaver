@@ -28,6 +28,7 @@ static NSString *noMoreSlidesError = @"<html><body><b>No more slides</b></body><
 @interface SlidesView : ScreenSaverView
 
 @property (nonatomic, strong) WKWebViewCustom *webView;
+@property (nonatomic, strong) NSTextView *textView;
 
 @property (nonatomic, strong) NSString *baseLink;
 @property (nonatomic) int currentSlide;
