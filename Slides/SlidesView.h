@@ -11,16 +11,22 @@
 
 #import "WKWebViewCustom.h"
 
+// Keys
+
 static NSString *urlKey = @"slidesUrl";
 static NSString *timeKey = @"stayOnSlideTime";
 static NSString *resetKey = @"resetSlidesWhenStarted";
 static NSString *currentSlideKey = @"currentSlideKey";
 static NSString *maxSlidesKey = @"maxSlides";
 static NSString *zoomFullScreenKey = @"zoomForFullScreen";
+static NSString *viewRefreshTimeKey = @"viewRefreshTime";
+
 
 static NSString *configFile = @"ai.people.screensaver";
 
 static NSString *modeMinimal = @"minimal";
+
+// Messages
 
 static NSString *configError = @"<html><body><b>Error while loading config file</b></body></html>";
 static NSString *noMoreSlidesError = @"<html><body><b>No more slides</b></body></html>";

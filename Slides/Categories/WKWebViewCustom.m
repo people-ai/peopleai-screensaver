@@ -18,15 +18,15 @@
 }
 
 - (void)mouseDown:(NSEvent *)theEvent {
-    // do nothing
+    // do nothing to skip any mouse event
 }
 
 - (void)keyDown:(NSEvent *)event {
-    // do nothing
+    // do nothing to skip any keyboard event
 }
 
 - (void)keyUp:(NSEvent *)event {
-    // do nothing
+    // do nothing to skip any keyboard event
 }
 
 @end

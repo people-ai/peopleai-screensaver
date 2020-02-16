@@ -14,6 +14,9 @@ static BOOL debugMode = false;
 static CGFloat resizeWidth = 0.05; // resize
 static CGFloat resizeHeight = 0.05; // resize
 
+static NSString *currentLink = @"";
+static int previousSlide = 0;
+static NSTimer *timer;
 
 @implementation SlidesView
 
@@ -38,12 +41,14 @@ static CGFloat resizeHeight = 0.05; // resize
         }
 
         if (mdmMode) {
-            //[self mdmTest];
-            //[self mdmClearForTest];
             [self loadMdm];
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+                [self checkViewRefreshTime];
+                [self setAnimationTimeInterval:1];
+            });
         } else {
-            [self loadConfiguartionFromBundle];
-            [self reloadPage];
+            //[self loadConfiguartionFromBundle];
+            //[self reloadPage];
         }
     
     }
@@ -84,11 +89,12 @@ static CGFloat resizeHeight = 0.05; // resize
 
 - (void)animateOneFrame {
     if (mdmMode) {
-        // do nothing
+        // do nothing, just save current slide
+        [self saveCurrentSlide];
     } else {
         if (self.currentSlide < self.maxSlides) {
             self.currentSlide ++;
-            [self reloadPage];
+            //[self reloadPage];
         } else {
             [self loadInfoMessage:noMoreSlidesError];
         }
@@ -107,20 +113,60 @@ static CGFloat resizeHeight = 0.05; // resize
     NSString *str = [NSString stringWithFormat:@"\nSlides: %@", msg];
     self.textView.string = [self.textView.string stringByAppendingString:str];
 }
- 
+
+- (void)saveCurrentSlide {
+    NSURLComponents *cmps = [NSURLComponents componentsWithURL:self.webView.URL resolvingAgainstBaseURL:true];
+    NSMutableDictionary<NSString *, NSString *> *queryParams = [NSMutableDictionary<NSString *, NSString *> new];
+    for (NSURLQueryItem *queryItem in [cmps queryItems]) {
+        if (queryItem.value == nil) {
+            continue;
+        }
+        [queryParams setObject:queryItem.value forKey:queryItem.name];
+    }
+    NSString *strSlide = queryParams[@"slide"];
+    if (strSlide != nil) {
+        int slide = strSlide.intValue;
+        [[NSUserDefaults standardUserDefaults] setInteger:slide forKey:currentSlideKey];
+        [[NSUserDefaults standardUserDefaults] synchronize];
+    }
+}
+
+- (void)checkViewRefreshTime {
+    NSString *moduleName = [NSBundle bundleForClass:self.class].bundleIdentifier;
+    NSUserDefaults *def = [[NSUserDefaults alloc] initWithSuiteName:moduleName];
+    NSNumber *viewRefreshTime = [def objectForKey:viewRefreshTimeKey];
+
+    int interval = viewRefreshTime.intValue;
+    timer = [NSTimer scheduledTimerWithTimeInterval:interval repeats:YES block:^(NSTimer *timer) {
+        [self loadMdm];
+        NSLog(@"view refreshed.");
+    }];
+}
+
 - (void)loadMdm {
     NSString *moduleName = [NSBundle bundleForClass:self.class].bundleIdentifier;
     NSUserDefaults *def = [[NSUserDefaults alloc] initWithSuiteName:moduleName];
 
     NSString *link = [def stringForKey:urlKey];
-    //NSNumber *resetSlidesWhenStarted = [def objectForKey:resetKey];
+    NSNumber *resetSlidesWhenStarted = [def objectForKey:resetKey];
     NSNumber *stayOnSlideTime = [def objectForKey:timeKey];
     NSNumber *zoom = [def objectForKey:zoomFullScreenKey];
 
+    int slide = -1;
+    if (resetSlidesWhenStarted.boolValue) {
+        slide = 0;
+    } else {
+        NSNumber *value = [[NSUserDefaults standardUserDefaults] objectForKey:currentSlideKey];
+        if (value) {
+            slide = value.intValue;
+        }
+        
+    }
+    
     if ((link != nil) && ![link isEqualToString:@""]) {
-        NSString *fullLink = [self createAutoplay:link time:stayOnSlideTime.intValue];
-        [self setAnimationTimeInterval:self.slideTime/1000]; // from ms to sec
-        NSURLRequest *request = [[NSURLRequest alloc] initWithURL:[NSURL URLWithString:fullLink]];
+        currentLink = [self createAutoplay:link time:stayOnSlideTime.intValue slide:slide];
+        [self setAnimationTimeInterval:self.slideTime]; // from ms to sec
+        NSURLRequest *request = [[NSURLRequest alloc] initWithURL:[NSURL URLWithString:currentLink]];
         [self.webView loadRequest:request];
                 
         if (zoom.boolValue) {
@@ -140,6 +186,7 @@ static CGFloat resizeHeight = 0.05; // resize
 
 }
 
+/*
 - (void)loadConfiguartionFromBundle {
     NSDictionary *mainConfiguration = [NSDictionary dictionaryWithContentsOfFile:[[NSBundle bundleWithIdentifier:@"com.test.Slides"] pathForResource:configFile ofType:@"plist" inDirectory:@""]];
 
@@ -167,17 +214,23 @@ static CGFloat resizeHeight = 0.05; // resize
         // show some default image or text
         [self loadInfoMessage:configError];
     }
-    [self setAnimationTimeInterval:self.slideTime/1000]; // from ms to sec
+    [self setAnimationTimeInterval:self.slideTime]; // from ms to sec
 }
+*/
 
 - (NSString *)create:(NSString *)link Mode:(NSString *)mode slide:(int)slide {
     return [NSString stringWithFormat:@"%@/preview?rm=%@&slide=%i", link, mode, slide];
 }
 
-- (NSString *)createAutoplay:(NSString *)link time:(int)time {
-    return [NSString stringWithFormat:@"%@?rm=minimal&start=true&loop=true&delayms=%d", link, time];
+- (NSString *)createAutoplay:(NSString *)link time:(int)time slide:(int)slide {
+    if (slide > 0) {
+        return [NSString stringWithFormat:@"%@?rm=minimal&start=true&loop=true&delayms=%d&slide=%i", link, time*1000, slide];
+    } else {
+        return [NSString stringWithFormat:@"%@?rm=minimal&start=true&loop=true&delayms=%d", link, time*1000];
+    }
 }
 
+/*
 - (void)reloadPage {
     if (self.baseLink) {
         NSString *link = [self create:self.baseLink Mode:modeMinimal slide:self.currentSlide];
@@ -188,8 +241,8 @@ static CGFloat resizeHeight = 0.05; // resize
         [[NSUserDefaults standardUserDefaults] setObject:@(self.currentSlide) forKey:currentSlideKey];
         [[NSUserDefaults standardUserDefaults] synchronize];
     }
-
 }
+*/
 
 - (void)loadInfoMessage:(NSString *)msg {
     [self.webView loadHTMLString:msg baseURL:nil];
