@@ -12,6 +12,7 @@
 		761DA42023DB03D800E0D90C /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 761DA41F23DB03D800E0D90C /* Cocoa.framework */; };
 		76A5F89023C3334900197419 /* SlidesView.h in Headers */ = {isa = PBXBuildFile; fileRef = 76A5F88F23C3334900197419 /* SlidesView.h */; };
 		76A5F89223C3334900197419 /* SlidesView.m in Sources */ = {isa = PBXBuildFile; fileRef = 76A5F89123C3334900197419 /* SlidesView.m */; };
+		76CFA693241641FC0099B289 /* error.html in Resources */ = {isa = PBXBuildFile; fileRef = 76CFA692241641FC0099B289 /* error.html */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -23,6 +24,7 @@
 		76A5F88F23C3334900197419 /* SlidesView.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SlidesView.h; sourceTree = "<group>"; };
 		76A5F89123C3334900197419 /* SlidesView.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = SlidesView.m; sourceTree = "<group>"; };
 		76A5F89323C3334900197419 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		76CFA692241641FC0099B289 /* error.html */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.html; path = error.html; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -58,6 +60,7 @@
 		76A5F88223C3334900197419 = {
 			isa = PBXGroup;
 			children = (
+				76CFA692241641FC0099B289 /* error.html */,
 				76A5F88E23C3334900197419 /* Slides */,
 				76A5F88D23C3334900197419 /* Products */,
 				761DA41C23DB00CB00E0D90C /* Frameworks */,
@@ -130,7 +133,7 @@
 					};
 				};
 			};
-			buildConfigurationList = 76A5F88623C3334900197419 /* Build configuration list for PBXProject "People.ai Screensaver" */;
+			buildConfigurationList = 76A5F88623C3334900197419 /* Build configuration list for PBXProject "Slides" */;
 			compatibilityVersion = "Xcode 9.3";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
@@ -153,6 +156,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				76CFA693241641FC0099B289 /* error.html in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -289,7 +293,7 @@
 				DEVELOPMENT_TEAM = B865KYJU5B;
 				INFOPLIST_FILE = Slides/Info.plist;
 				INSTALL_PATH = "$(HOME)/Library/Screen Savers";
-				MACOSX_DEPLOYMENT_TARGET = 10.14;
+				MACOSX_DEPLOYMENT_TARGET = 10.12;
 				OTHER_CODE_SIGN_FLAGS = "--timestamp";
 				PRODUCT_BUNDLE_IDENTIFIER = ai.people.screensaver;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -307,7 +311,7 @@
 				DEVELOPMENT_TEAM = B865KYJU5B;
 				INFOPLIST_FILE = Slides/Info.plist;
 				INSTALL_PATH = "$(HOME)/Library/Screen Savers";
-				MACOSX_DEPLOYMENT_TARGET = 10.14;
+				MACOSX_DEPLOYMENT_TARGET = 10.12;
 				OTHER_CODE_SIGN_FLAGS = "--timestamp";
 				PRODUCT_BUNDLE_IDENTIFIER = ai.people.screensaver;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -319,7 +323,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		76A5F88623C3334900197419 /* Build configuration list for PBXProject "People.ai Screensaver" */ = {
+		76A5F88623C3334900197419 /* Build configuration list for PBXProject "Slides" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				76A5F89423C3334900197419 /* Debug */,
