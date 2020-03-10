@@ -160,7 +160,6 @@ static NSTimer *timer;
         if (value) {
             slide = value.intValue;
         }
-        
     }
     
     if ((link != nil) && ![link isEqualToString:@""]) {
@@ -172,12 +171,14 @@ static NSTimer *timer;
         if (zoom.boolValue) {
             [self.webView setFrame:NSMakeRect(-(resizeWidth*self.bounds.size.width), -(resizeHeight*self.bounds.size.height), self.bounds.size.width*(1+2*resizeWidth), self.bounds.size.height*(1 + 2 * resizeHeight))];
         }
-        
     } else {
+        /*
         NSString *msg = [NSString stringWithFormat:@"Error: link: %@, time: %@, moduleName: %@", link, stayOnSlideTime, moduleName];
-        //[self loadInfoMessage:msg];
         [self loadInfoMessage:msg];
+        */
+        [self loadErrorPage];
     }
+    
     
     if (debugMode) {
         [self showDebugMessage:[NSString stringWithFormat:@"loadConfig parent view rect: %@", NSStringFromRect(self.frame)]];
@@ -246,6 +247,12 @@ static NSTimer *timer;
 
 - (void)loadInfoMessage:(NSString *)msg {
     [self.webView loadHTMLString:msg baseURL:nil];
+}
+
+- (void)loadErrorPage {
+    NSString *path = [[NSBundle bundleForClass:[self class]] pathForResource:@"error" ofType:@"html"];
+    NSURL *url = [NSURL fileURLWithPath:path];
+    [self.webView loadFileURL:url allowingReadAccessToURL:url.URLByDeletingLastPathComponent];
 }
 
 @end
