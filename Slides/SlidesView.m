@@ -136,11 +136,15 @@ static NSTimer *timer;
     NSUserDefaults *def = [[NSUserDefaults alloc] initWithSuiteName:moduleName];
     NSNumber *viewRefreshTime = [def objectForKey:viewRefreshTimeKey];
 
-    int interval = viewRefreshTime.intValue;
-    timer = [NSTimer scheduledTimerWithTimeInterval:interval repeats:YES block:^(NSTimer *timer) {
-        [self loadMdm];
-        NSLog(@"view refreshed.");
-    }];
+    double interval = viewRefreshTime.doubleValue;
+    if (interval >= 1.0) {
+        timer = [NSTimer scheduledTimerWithTimeInterval:interval repeats:YES block:^(NSTimer *timer) {
+            if (!self.hidden) {
+                [self loadMdm];
+            }
+            NSLog(@"view refreshed.");
+        }];
+    }
 }
 
 - (void)loadMdm {
@@ -160,7 +164,6 @@ static NSTimer *timer;
         if (value) {
             slide = value.intValue;
         }
-        
     }
     
     if ((link != nil) && ![link isEqualToString:@""]) {
