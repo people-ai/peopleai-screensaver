@@ -18,6 +18,7 @@ To notarise screensaver:
  --asc-provider, if need to change, should be replaced with other ITC provider id.
 
 2. Run script
+
   > $ "./notarize.sh".
 
   It may take up 10 minutes.
@@ -28,7 +29,7 @@ To notarise screensaver:
 
   after message about successful notarisation received by email.
 
-To check notarisation status:
+  To check notarisation status:
 
   Also you can check status of notarisation using RequestId, received after running **"./notarize.sh"**:
 

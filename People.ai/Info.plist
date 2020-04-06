@@ -21,6 +21,6 @@
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright © 2020 oles. All rights reserved.</string>
 	<key>NSPrincipalClass</key>
-	<string>SlidesView</string>
+	<string>PeopleView</string>
 </dict>
 </plist>
