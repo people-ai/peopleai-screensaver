@@ -10,8 +10,8 @@
 		761AB74423D724FF007DD3FF /* WKWebViewCustom.h in Headers */ = {isa = PBXBuildFile; fileRef = 761AB74223D724FF007DD3FF /* WKWebViewCustom.h */; };
 		761AB74523D724FF007DD3FF /* WKWebViewCustom.m in Sources */ = {isa = PBXBuildFile; fileRef = 761AB74323D724FF007DD3FF /* WKWebViewCustom.m */; };
 		761DA42023DB03D800E0D90C /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 761DA41F23DB03D800E0D90C /* Cocoa.framework */; };
-		76A5F89023C3334900197419 /* SlidesView.h in Headers */ = {isa = PBXBuildFile; fileRef = 76A5F88F23C3334900197419 /* SlidesView.h */; };
-		76A5F89223C3334900197419 /* SlidesView.m in Sources */ = {isa = PBXBuildFile; fileRef = 76A5F89123C3334900197419 /* SlidesView.m */; };
+		76A5F89023C3334900197419 /* PeopleView.h in Headers */ = {isa = PBXBuildFile; fileRef = 76A5F88F23C3334900197419 /* PeopleView.h */; };
+		76A5F89223C3334900197419 /* PeopleView.m in Sources */ = {isa = PBXBuildFile; fileRef = 76A5F89123C3334900197419 /* PeopleView.m */; };
 		76CFA693241641FC0099B289 /* error.html in Resources */ = {isa = PBXBuildFile; fileRef = 76CFA692241641FC0099B289 /* error.html */; };
 /* End PBXBuildFile section */
 
@@ -21,9 +21,10 @@
 		761DA41D23DB00CC00E0D90C /* ScreenSaver.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ScreenSaver.framework; path = System/Library/Frameworks/ScreenSaver.framework; sourceTree = SDKROOT; };
 		761DA41F23DB03D800E0D90C /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = System/Library/Frameworks/Cocoa.framework; sourceTree = SDKROOT; };
 		76A5F88C23C3334900197419 /* People.ai.saver */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = People.ai.saver; sourceTree = BUILT_PRODUCTS_DIR; };
-		76A5F88F23C3334900197419 /* SlidesView.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SlidesView.h; sourceTree = "<group>"; };
-		76A5F89123C3334900197419 /* SlidesView.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = SlidesView.m; sourceTree = "<group>"; };
+		76A5F88F23C3334900197419 /* PeopleView.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PeopleView.h; sourceTree = "<group>"; };
+		76A5F89123C3334900197419 /* PeopleView.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PeopleView.m; sourceTree = "<group>"; };
 		76A5F89323C3334900197419 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		76CF574B243B3A6C003803D1 /* readme.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = readme.md; sourceTree = "<group>"; };
 		76CFA692241641FC0099B289 /* error.html */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.html; path = error.html; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -60,8 +61,9 @@
 		76A5F88223C3334900197419 = {
 			isa = PBXGroup;
 			children = (
+				76CF574B243B3A6C003803D1 /* readme.md */,
 				76CFA692241641FC0099B289 /* error.html */,
-				76A5F88E23C3334900197419 /* Slides */,
+				76A5F88E23C3334900197419 /* People.ai */,
 				76A5F88D23C3334900197419 /* Products */,
 				761DA41C23DB00CB00E0D90C /* Frameworks */,
 			);
@@ -75,15 +77,15 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
-		76A5F88E23C3334900197419 /* Slides */ = {
+		76A5F88E23C3334900197419 /* People.ai */ = {
 			isa = PBXGroup;
 			children = (
 				761AB74123D724C1007DD3FF /* Categories */,
-				76A5F88F23C3334900197419 /* SlidesView.h */,
-				76A5F89123C3334900197419 /* SlidesView.m */,
+				76A5F88F23C3334900197419 /* PeopleView.h */,
+				76A5F89123C3334900197419 /* PeopleView.m */,
 				76A5F89323C3334900197419 /* Info.plist */,
 			);
-			path = Slides;
+			path = People.ai;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -93,7 +95,7 @@
 			isa = PBXHeadersBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				76A5F89023C3334900197419 /* SlidesView.h in Headers */,
+				76A5F89023C3334900197419 /* PeopleView.h in Headers */,
 				761AB74423D724FF007DD3FF /* WKWebViewCustom.h in Headers */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -133,7 +135,7 @@
 					};
 				};
 			};
-			buildConfigurationList = 76A5F88623C3334900197419 /* Build configuration list for PBXProject "Slides" */;
+			buildConfigurationList = 76A5F88623C3334900197419 /* Build configuration list for PBXProject "People.ai" */;
 			compatibilityVersion = "Xcode 9.3";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
@@ -168,7 +170,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				761AB74523D724FF007DD3FF /* WKWebViewCustom.m in Sources */,
-				76A5F89223C3334900197419 /* SlidesView.m in Sources */,
+				76A5F89223C3334900197419 /* PeopleView.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -287,11 +289,11 @@
 		76A5F89723C3334900197419 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				CODE_SIGN_IDENTITY = "Developer ID Application";
+				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				DEVELOPMENT_TEAM = B865KYJU5B;
-				INFOPLIST_FILE = Slides/Info.plist;
+				DEVELOPMENT_TEAM = "";
+				INFOPLIST_FILE = People.ai/Info.plist;
 				INSTALL_PATH = "$(HOME)/Library/Screen Savers";
 				MACOSX_DEPLOYMENT_TARGET = 10.12;
 				OTHER_CODE_SIGN_FLAGS = "--timestamp";
@@ -305,11 +307,11 @@
 		76A5F89823C3334900197419 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				CODE_SIGN_IDENTITY = "Developer ID Application";
+				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				DEVELOPMENT_TEAM = B865KYJU5B;
-				INFOPLIST_FILE = Slides/Info.plist;
+				DEVELOPMENT_TEAM = "";
+				INFOPLIST_FILE = People.ai/Info.plist;
 				INSTALL_PATH = "$(HOME)/Library/Screen Savers";
 				MACOSX_DEPLOYMENT_TARGET = 10.12;
 				OTHER_CODE_SIGN_FLAGS = "--timestamp";
@@ -323,7 +325,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		76A5F88623C3334900197419 /* Build configuration list for PBXProject "Slides" */ = {
+		76A5F88623C3334900197419 /* Build configuration list for PBXProject "People.ai" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				76A5F89423C3334900197419 /* Debug */,

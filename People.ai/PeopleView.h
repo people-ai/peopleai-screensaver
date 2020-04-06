@@ -1,6 +1,6 @@
 //
-//  SlidesView.h
-//  Slides
+//  PeopleView.h
+//  People.ai
 //
 //  Created by oles on 1/6/20.
 //  Copyright © 2020 oles. All rights reserved.
@@ -31,7 +31,7 @@ static NSString *modeMinimal = @"minimal";
 static NSString *configError = @"<html><body><b>Error while loading config file</b></body></html>";
 static NSString *noMoreSlidesError = @"<html><body><b>No more slides</b></body></html>";
 
-@interface SlidesView : ScreenSaverView
+@interface PeopleView : ScreenSaverView
 
 @property (nonatomic, strong) WKWebViewCustom *webView;
 @property (nonatomic, strong) NSTextView *textView;
