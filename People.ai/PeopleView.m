@@ -1,12 +1,12 @@
 //
-//  SlidesView.m
-//  Slides
+//  PeopleView.m
+//  People.ai
 //
-//  Created by oles on 1/6/20.
-//  Copyright © 2020 oles. All rights reserved.
+//  Created by People.ai on 1/21/20.
+//  Copyright © 2020 People.ai, Inc. All rights reserved.
 //
 
-#import "SlidesView.h"
+#import "PeopleView.h"
 
 static BOOL mdmMode = true;
 static BOOL debugMode = false;
@@ -15,10 +15,10 @@ static CGFloat resizeWidth = 0.05; // resize
 static CGFloat resizeHeight = 0.05; // resize
 
 static NSString *currentLink = @"";
-static int previousSlide = 0;
+//static int previousSlide = 0;
 static NSTimer *timer;
 
-@implementation SlidesView
+@implementation PeopleView
 
 - (instancetype)initWithFrame:(NSRect)frame isPreview:(BOOL)isPreview {
     self = [super initWithFrame:frame isPreview:isPreview];
