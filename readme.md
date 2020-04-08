@@ -1,6 +1,11 @@
 #  Preparing the release of People.ai Screensaver
 
-## Build
+## Prerequisites
+
+Install Packages toolkit for applications packaging - http://s.sudre.free.fr/Software/Packages/about.html
+
+
+## Build process
 
 To build screensaver:
 1. Run script
@@ -8,14 +13,14 @@ To build screensaver:
 
   It will build the app, installer package and sign the package for distributiion. The result of command execution is **People.ia.signed.zip** package, that can be notarized later.
 
-## Notarisation
+## Notarization process
 
 To notarize the screensaver:
 1. In script **"notarize.sh"** replace:
- **[APPLE ID]** with AppleId that should be used for notarisation.  
+ **[APPLE ID]** with AppleId that should be used for notarization.  
  **[APP PASSWORD]** with App Password created for notarization (go to AppleId home page -> Security -> App password -> Create New).
 
- --asc-provider, if need to change, should be replaced with other ITC provider id.
+ Use --asc-provider parameter if there is a need to replace the ITC provider.
 
 2. Run script
 
