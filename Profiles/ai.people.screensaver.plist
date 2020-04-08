@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>maxSlides</key>
+	<string>3</string>
+	<key>slidesUrl</key>
+	<string>https://docs.google.com/presentation/d/e/2PACX-1vS9TI8PNekUOR6N6ugerMAuCQZBvJGJNPfAjKZt9uqDtj4e4nOY9goguhFv0L1ae2sVL-vyG8-8lkRT/pub</string>
+	<key>stayOnSlideTime</key>
+	<real>5000</real>
+	<key>resetSlidesWhenStarted</key>
+	<true/>
+</dict>
+</plist>

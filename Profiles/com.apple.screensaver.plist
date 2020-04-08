@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+	<dict>
+		<key>askForPassword</key>
+			<integer>1</integer>
+		<key>askForPasswordDelay</key>
+			<integer>0</integer>
+		<key>loginWindowIdleTime</key>
+			<integer>900</integer>
+		<key>idleTime</key>
+			<integer>900</integer>
+		<key>loginWindowModulePath</key>
+			<string>/Library/Screen Savers/People.ai.saver</string>
+	</dict>
+</plist>
