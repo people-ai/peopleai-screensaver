@@ -19,7 +19,7 @@
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>NSHumanReadableCopyright</key>
-	<string>Copyright © 2020 oles. All rights reserved.</string>
+	<string>Copyright © 2020 People.ai, Inc. All rights reserved.</string>
 	<key>NSPrincipalClass</key>
 	<string>PeopleView</string>
 </dict>
