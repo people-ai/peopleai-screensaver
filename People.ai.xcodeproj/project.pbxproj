@@ -10,9 +10,13 @@
 		761AB74423D724FF007DD3FF /* WKWebViewCustom.h in Headers */ = {isa = PBXBuildFile; fileRef = 761AB74223D724FF007DD3FF /* WKWebViewCustom.h */; };
 		761AB74523D724FF007DD3FF /* WKWebViewCustom.m in Sources */ = {isa = PBXBuildFile; fileRef = 761AB74323D724FF007DD3FF /* WKWebViewCustom.m */; };
 		761DA42023DB03D800E0D90C /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 761DA41F23DB03D800E0D90C /* Cocoa.framework */; };
+		767D08FB271C0D2B004DE4E2 /* NSView+ImageRepresentation.h in Headers */ = {isa = PBXBuildFile; fileRef = 767D08F9271C0D2B004DE4E2 /* NSView+ImageRepresentation.h */; };
+		767D08FC271C0D2B004DE4E2 /* NSView+ImageRepresentation.m in Sources */ = {isa = PBXBuildFile; fileRef = 767D08FA271C0D2B004DE4E2 /* NSView+ImageRepresentation.m */; };
 		76A5F89023C3334900197419 /* PeopleView.h in Headers */ = {isa = PBXBuildFile; fileRef = 76A5F88F23C3334900197419 /* PeopleView.h */; };
 		76A5F89223C3334900197419 /* PeopleView.m in Sources */ = {isa = PBXBuildFile; fileRef = 76A5F89123C3334900197419 /* PeopleView.m */; };
 		76CFA693241641FC0099B289 /* error.html in Resources */ = {isa = PBXBuildFile; fileRef = 76CFA692241641FC0099B289 /* error.html */; };
+		76F345512720498E00003681 /* NSImage+Resize.h in Headers */ = {isa = PBXBuildFile; fileRef = 76F3454F2720498E00003681 /* NSImage+Resize.h */; };
+		76F345522720498E00003681 /* NSImage+Resize.m in Sources */ = {isa = PBXBuildFile; fileRef = 76F345502720498E00003681 /* NSImage+Resize.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -20,12 +24,16 @@
 		761AB74323D724FF007DD3FF /* WKWebViewCustom.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = WKWebViewCustom.m; sourceTree = "<group>"; };
 		761DA41D23DB00CC00E0D90C /* ScreenSaver.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ScreenSaver.framework; path = System/Library/Frameworks/ScreenSaver.framework; sourceTree = SDKROOT; };
 		761DA41F23DB03D800E0D90C /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = System/Library/Frameworks/Cocoa.framework; sourceTree = SDKROOT; };
+		767D08F9271C0D2B004DE4E2 /* NSView+ImageRepresentation.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "NSView+ImageRepresentation.h"; sourceTree = "<group>"; };
+		767D08FA271C0D2B004DE4E2 /* NSView+ImageRepresentation.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = "NSView+ImageRepresentation.m"; sourceTree = "<group>"; };
 		76A5F88C23C3334900197419 /* People.ai.saver */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = People.ai.saver; sourceTree = BUILT_PRODUCTS_DIR; };
 		76A5F88F23C3334900197419 /* PeopleView.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PeopleView.h; sourceTree = "<group>"; };
 		76A5F89123C3334900197419 /* PeopleView.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PeopleView.m; sourceTree = "<group>"; };
 		76A5F89323C3334900197419 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		76CF574B243B3A6C003803D1 /* readme.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = readme.md; sourceTree = "<group>"; };
 		76CFA692241641FC0099B289 /* error.html */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.html; path = error.html; sourceTree = "<group>"; };
+		76F3454F2720498E00003681 /* NSImage+Resize.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "NSImage+Resize.h"; sourceTree = "<group>"; };
+		76F345502720498E00003681 /* NSImage+Resize.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = "NSImage+Resize.m"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -45,6 +53,10 @@
 			children = (
 				761AB74223D724FF007DD3FF /* WKWebViewCustom.h */,
 				761AB74323D724FF007DD3FF /* WKWebViewCustom.m */,
+				767D08F9271C0D2B004DE4E2 /* NSView+ImageRepresentation.h */,
+				767D08FA271C0D2B004DE4E2 /* NSView+ImageRepresentation.m */,
+				76F3454F2720498E00003681 /* NSImage+Resize.h */,
+				76F345502720498E00003681 /* NSImage+Resize.m */,
 			);
 			path = Categories;
 			sourceTree = "<group>";
@@ -96,7 +108,9 @@
 			buildActionMask = 2147483647;
 			files = (
 				76A5F89023C3334900197419 /* PeopleView.h in Headers */,
+				767D08FB271C0D2B004DE4E2 /* NSView+ImageRepresentation.h in Headers */,
 				761AB74423D724FF007DD3FF /* WKWebViewCustom.h in Headers */,
+				76F345512720498E00003681 /* NSImage+Resize.h in Headers */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -169,8 +183,10 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				76F345522720498E00003681 /* NSImage+Resize.m in Sources */,
 				761AB74523D724FF007DD3FF /* WKWebViewCustom.m in Sources */,
 				76A5F89223C3334900197419 /* PeopleView.m in Sources */,
+				767D08FC271C0D2B004DE4E2 /* NSView+ImageRepresentation.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

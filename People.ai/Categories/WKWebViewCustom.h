@@ -2,8 +2,8 @@
 //  NSView+Unselectable.h
 //  People.ai
 //
-//  Created by oles on 1/21/20.
-//  Copyright © 2020 oles. All rights reserved.
+//  Created by People.ai on 1/21/20.
+//  Copyright © 2020-2022 People.ai. All rights reserved.
 //
 
 #import <AppKit/AppKit.h>

@@ -2,8 +2,8 @@
 //  WKWebViewCustom.m
 //  People.ai
 //
-//  Created by oles on 1/21/20.
-//  Copyright © 2020 oles. All rights reserved.
+//  Created by People.ai on 1/21/20.
+//  Copyright © 2020-2022 People.ai. All rights reserved.
 //
 
 #import "WKWebViewCustom.h"
@@ -28,5 +28,6 @@
 - (void)keyUp:(NSEvent *)event {
     // do nothing to skip any keyboard event
 }
+
 
 @end
