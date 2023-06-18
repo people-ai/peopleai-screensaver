@@ -2,8 +2,7 @@
 
 ## Prerequisites
 
-1. Install Packages toolkit for applications packaging - http://s.sudre.free.fr/Software/Packages/about.html
-2. Add notarization keys to keychain
+1. Add notarization keys to keychain
 
     > xcrun notarytool store-credentials "AC_PASSWORD" --apple-id "AC_USERNAME" --team-id <team_id> --password <secret_2FA_password>
 

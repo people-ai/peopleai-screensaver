@@ -5,7 +5,8 @@ xcodebuild -project People.ai.xcodeproj -scheme "People.ai" -configuration Relea
 #xcodebuild -project People.ai.xcodeproj -configuration Release "CODE_SIGN_IDENTITY=Developer ID Application: People.ai, Inc (B865KYJU5B)" -UseModernBuildSystem=NO -exportArchive -archivePath "Build/People.ai.xcarchive"  -exportOptionsPlist "exportOptions.plist"
 
 # package
-packagesbuild -v "People.ai.pkgproj"
+# packagesbuild -v "People.ai.pkgproj"
+pkgbuild --install-location "/Library/Screen Savers/People.ai.saver" --root Build/Products/Release/People.ai.saver "Build/People.ai.pkg" --identifier "ai.people.screensaver.pkg" --version "1.0"
 
 # sign package
 /usr/bin/productsign --timestamp --sign "Developer ID Installer: People.ai, Inc (B865KYJU5B)" "Build/People.ai.pkg" "Build/People.ai.signed.pkg"
