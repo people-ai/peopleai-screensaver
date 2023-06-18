@@ -1,6 +1,15 @@
 #  Preparing the release of People.ai Screensaver
 
-## Build
+## Prerequisites
+
+1. Install Packages toolkit for applications packaging - http://s.sudre.free.fr/Software/Packages/about.html
+2. Add notarization keys to keychain
+
+    > xcrun notarytool store-credentials "AC_PASSWORD" --apple-id "AC_USERNAME" --team-id <team_id> --password <secret_2FA_password>
+
+    Where replace <team_id> with real Team ID and <secret_2FA_password> with real app password
+
+## Build process
 
 To build screensaver:
 1. Run script
@@ -10,29 +19,14 @@ To build screensaver:
 
 ## Notarisation
 
-To notarise screensaver:
-1. In script **"notarize.sh"** replace:
- **[APPLE ID]** with AppleId that should be used for notarisation.  
- **[APP PASSWORD]** with App Password created for notarisation (go to AppleId home page -> Security -> App password -> Create New).
+To notarize the screensaver:
 
- --asc-provider, if need to change, should be replaced with other ITC provider id.
-
-2. Run script
+1. Run script
 
   > $ "./notarize.sh".
 
   It may take up 10 minutes.
 
-3. To add staple (needed for Gatekeeper to check app if no internet connection is available) run script
+2. To add staple (required for Gatekeeper to check the app with no Internet connection available), run the following script:
 
   > $ "./add_staple.sh"
-
-  after message about successful notarisation received by email.
-
-  To check notarisation status:
-
-  Also you can check status of notarisation using RequestId, received after running **"./notarize.sh"**:
-
-  > $ "xcrun altool --notarization-info [REQUEST ID] -u [APPLE ID] -p [APP PASSWORD] --output-format xml"
-
-  where **[REQUEST ID]** should be replaced with real request id, **[APPLE ID]** with AppleId of person who sent app to notarisation and **[APP PASSWORD]** with app password created to this purpose.
