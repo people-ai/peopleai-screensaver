@@ -4,9 +4,9 @@
 
 1. Add notarization keys to keychain
 
-    > xcrun notarytool store-credentials "AC_PASSWORD" --apple-id "AC_USERNAME" --team-id <team_id> --password <secret_2FA_password>
+    > xcrun notarytool store-credentials "AC_PASSWORD" --apple-id <apple_id> --team-id <team_id> --password <secret_2FA_password>
 
-    Where replace <team_id> with real Team ID and <secret_2FA_password> with real app password
+    Where replace <apple_id> with reald Apple ID, <team_id> with real Team ID and <secret_2FA_password> with real app password
 
 ## Build process
 
