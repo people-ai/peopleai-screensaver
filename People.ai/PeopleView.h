@@ -48,4 +48,8 @@ static NSString *noMoreSlidesError = @"<html><body><b>No more slides</b></body><
 @property (nonatomic) int maxSlides;
 @property (nonatomic) int slideTime;
 
+// Method declarations for macOS version compatibility
+- (void)handleMacOS15StopAnimation;
+- (void)handleOlderMacOSStopAnimation;
+
 @end

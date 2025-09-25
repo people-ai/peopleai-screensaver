@@ -12,6 +12,12 @@
 
 - (NSImage *)imageRepresentation
 {
+    // Validate bounds to prevent memory issues
+    if (self.bounds.size.width <= 0 || self.bounds.size.height <= 0) {
+        NSLog(@"Invalid view bounds for image representation: %@", NSStringFromRect(self.bounds));
+        return nil;
+    }
+    
     BOOL wasHidden = self.isHidden;
     CGFloat wantedLayer = self.wantsLayer;
 
@@ -20,9 +26,17 @@
 
     NSImage *image = [[NSImage alloc] initWithSize:self.bounds.size];
     [image lockFocus];
-    CGContextRef ctx = [NSGraphicsContext currentContext].graphicsPort;
-    [self.layer renderInContext:ctx];
-    [image unlockFocus];
+    
+    @try {
+        CGContextRef ctx = [NSGraphicsContext currentContext].CGContext;
+        if (ctx && self.layer) {
+            [self.layer renderInContext:ctx];
+        }
+    } @catch (NSException *exception) {
+        NSLog(@"Error rendering view to image: %@", exception.reason);
+    } @finally {
+        [image unlockFocus];
+    }
 
     self.wantsLayer = wantedLayer;
     self.hidden = wasHidden;
