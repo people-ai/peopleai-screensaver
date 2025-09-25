@@ -23,6 +23,7 @@ static NSTimer *timer;
 static NSNumber *stayOnSlideTime;
 
 static NSTimer *animationTimer;
+static CIContext *sharedContext;
 
 @implementation PeopleView
 
@@ -32,6 +33,26 @@ static NSTimer *animationTimer;
         
         WKWebViewConfiguration *config = [[WKWebViewConfiguration alloc] init];
         [config setValue:[NSNumber numberWithBool: NO] forKey:@"drawsBackground"];
+        
+        // Configure for better memory management
+        config.processPool = [[WKProcessPool alloc] init];
+        config.websiteDataStore = [WKWebsiteDataStore defaultDataStore];
+        
+        // Disable unnecessary features to reduce memory usage
+        config.allowsAirPlayForMediaPlayback = NO;
+        config.mediaTypesRequiringUserActionForPlayback = WKAudiovisualMediaTypeAll;
+        
+        // Enhanced security settings for macOS 15+ with backward compatibility
+        if (@available(macOS 15.0, *)) {
+            // macOS 15+ specific security enhancements
+            WKUserContentController *userContentController = [[WKUserContentController alloc] init];
+            config.userContentController = userContentController;
+            config.suppressesIncrementalRendering = YES;
+            // Note: allowsInlineMediaPlayback is not available in WKWebViewConfiguration
+        } else if (@available(macOS 10.15, *)) {
+            // macOS 10.15+ compatibility settings
+            config.suppressesIncrementalRendering = YES;
+        }
         
         self.webView = [[WKWebViewCustom alloc] initWithFrame:CGRectMake(0, 0, frame.size.width, frame.size.height) configuration:config];
         [self addSubview:self.webView];
@@ -57,6 +78,34 @@ static NSTimer *animationTimer;
         }
     }
     return self;
+}
+
+- (void)dealloc {
+    // Clean up timers
+    if (timer) {
+        [timer invalidate];
+        timer = nil;
+    }
+    if (animationTimer) {
+        [animationTimer invalidate];
+        animationTimer = nil;
+    }
+    
+    // Clear web view delegate
+    self.webView.navigationDelegate = nil;
+    
+    // Stop any pending network requests
+    [self.webView stopLoading];
+    
+    // Enhanced cleanup for different macOS versions
+    if (@available(macOS 15.0, *)) {
+        // macOS 15+ specific cleanup
+        [self.webView loadHTMLString:@"" baseURL:nil];
+        [self.webView removeFromSuperview];
+    } else if (@available(macOS 10.15, *)) {
+        // macOS 10.15+ cleanup
+        [self.webView loadHTMLString:@"" baseURL:nil];
+    }
 }
 
 - (void)setFrame:(NSRect)frameRect {
@@ -85,6 +134,54 @@ static NSTimer *animationTimer;
 
 - (void)stopAnimation {
     [super stopAnimation];
+    
+    // Clean up timers to prevent memory leaks
+    if (timer) {
+        [timer invalidate];
+        timer = nil;
+    }
+    if (animationTimer) {
+        [animationTimer invalidate];
+        animationTimer = nil;
+    }
+    
+    // Clear web view delegate to prevent retain cycles
+    self.webView.navigationDelegate = nil;
+    
+    // Cancel any pending network requests
+    [self.webView stopLoading];
+    
+    // Enhanced stop animation handling for different macOS versions
+    if (@available(macOS 15.0, *)) {
+        [self handleMacOS15StopAnimation];
+    } else if (@available(macOS 10.15, *)) {
+        [self handleOlderMacOSStopAnimation];
+    }
+}
+
+- (void)handleMacOS15StopAnimation {
+    // macOS 15 specific cleanup to prevent background processes
+    if (@available(macOS 15.0, *)) {
+        // Clear any pending JavaScript execution
+        [self.webView evaluateJavaScript:@"window.stop();" completionHandler:nil];
+        
+        // Clear web view content
+        [self.webView loadHTMLString:@"" baseURL:nil];
+        
+        // Force garbage collection if available
+        [self.webView evaluateJavaScript:@"if (window.gc) { window.gc(); }" completionHandler:nil];
+    }
+}
+
+- (void)handleOlderMacOSStopAnimation {
+    // Cleanup for macOS 10.15+ (but not 15+)
+    if (@available(macOS 10.15, *)) {
+        // Basic cleanup for older versions
+        [self.webView loadHTMLString:@"" baseURL:nil];
+        
+        // Clear any pending JavaScript execution
+        [self.webView evaluateJavaScript:@"window.stop();" completionHandler:nil];
+    }
 }
 
 - (void)drawRect:(NSRect)rect {
@@ -140,9 +237,17 @@ static NSTimer *animationTimer;
     
     double interval = viewRefreshTime.doubleValue;
     if (interval >= 1.0) {
+        // Invalidate existing timer to prevent multiple timers
+        if (timer) {
+            [timer invalidate];
+        }
+        
+        // Use weak reference to prevent retain cycle
+        __weak typeof(self) weakSelf = self;
         timer = [NSTimer scheduledTimerWithTimeInterval:interval repeats:YES block:^(NSTimer *timer) {
-            if (!self.hidden) {
-                [self loadMdm];
+            __strong typeof(weakSelf) strongSelf = weakSelf;
+            if (strongSelf && !strongSelf.hidden) {
+                [strongSelf loadMdm];
             }
             NSLog(@"view refreshed.");
         }];
@@ -178,7 +283,11 @@ static NSTimer *animationTimer;
     if ((link != nil) && ![link isEqualToString:@""]) {
         currentLink = [self createAutoplay:link time:stayOnSlideTime.intValue slide:slide];
         [self setAnimationTimeInterval:self.slideTime]; // from ms to sec
-        NSURLRequest *request = [[NSURLRequest alloc] initWithURL:[NSURL URLWithString:currentLink]];
+        
+        // Create request with timeout to prevent hanging
+        NSURLRequest *request = [[NSURLRequest alloc] initWithURL:[NSURL URLWithString:currentLink] 
+                                                    cachePolicy:NSURLRequestReloadIgnoringLocalCacheData 
+                                                timeoutInterval:30.0];
         self.webView.navigationDelegate = self;
         [self.webView loadRequest:request];
         
@@ -231,6 +340,7 @@ CGImageRef getCurrentDisplayImage(CGDirectDisplayID displayID) {
     CGRect rect = CGDisplayBounds(displayID);
     NSLog(@"People.AI display size: %f x %f", rect.size.width, rect.size.height);
     CGImageRef image = CGDisplayCreateImageForRect(displayID, CGRectMake(0, 0, rect.size.width, rect.size.height));
+    // Note: Caller is responsible for releasing the returned CGImageRef
     return image;
 }
 
@@ -244,10 +354,19 @@ CGImageRef getCurrentDisplayImage(CGDirectDisplayID displayID) {
     [gaussianBlurFilter setValue:@20 forKey:kCIInputRadiusKey];
     
     CIImage *outputImage = [gaussianBlurFilter outputImage];
-    CIContext *context   = [CIContext contextWithOptions:nil];
+    
+    // Use shared context to prevent memory leaks
+    if (!sharedContext) {
+        sharedContext = [CIContext contextWithOptions:nil];
+    }
+    
     // note, use input image extent if you want it the same size, the output image extent is larger
-    CGImageRef cgimg     = [context createCGImage:outputImage fromRect:[inputImage extent]];
+    CGImageRef cgimg = [sharedContext createCGImage:outputImage fromRect:[inputImage extent]];
     NSImage *convertedImage = [[NSImage alloc] initWithCGImage:cgimg size:NSSizeFromCGSize(CGSizeMake(0, 0))];
+    
+    // Release the CGImageRef to prevent memory leak
+    CGImageRelease(cgimg);
+    
     NSLog(@"People.AI blurred image size: %f x %f", convertedImage.size.width, convertedImage.size.height);
     return convertedImage;
 }
@@ -256,7 +375,19 @@ CGImageRef getCurrentDisplayImage(CGDirectDisplayID displayID) {
     if (@available(macOS 10.13, *)) {
         WKSnapshotConfiguration *wkSnapshotConfig = [WKSnapshotConfiguration new];
         wkSnapshotConfig.snapshotWidth = [NSNumber numberWithInt:self.frame.size.width];
+        
+        // macOS 15 compatibility: Add error handling and timeout
         [self.webView takeSnapshotWithConfiguration:wkSnapshotConfig completionHandler:^(NSImage * _Nullable snapshotImage, NSError * _Nullable error) {
+            if (error) {
+                NSLog(@"People.AI snapshot error: %@", error.localizedDescription);
+                return;
+            }
+            
+            if (!snapshotImage) {
+                NSLog(@"People.AI snapshot failed: No image returned");
+                return;
+            }
+            
             if (self.imageView == nil) {
                 NSLog(@"People.AI snapshot size: %f x %f", snapshotImage.size.width, snapshotImage.size.height);
                 double width = self.window.screen.frame.size.width;
@@ -291,6 +422,18 @@ CGImageRef getCurrentDisplayImage(CGDirectDisplayID displayID) {
 
 // MARK: WKNavigationDelegate
 
+- (void)webView:(WKWebView *)webView didFailNavigation:(WKNavigation *)navigation withError:(NSError *)error {
+    NSLog(@"People.AI screensaver navigation failed: %@", error.localizedDescription);
+    // Load error page on network failure
+    [self loadErrorPage];
+}
+
+- (void)webView:(WKWebView *)webView didFailProvisionalNavigation:(WKNavigation *)navigation withError:(NSError *)error {
+    NSLog(@"People.AI screensaver provisional navigation failed: %@", error.localizedDescription);
+    // Load error page on network failure
+    [self loadErrorPage];
+}
+
 - (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation {
     
     NSString *script = @"document.body.style = document.body.style.cssText + \";background: transparent !important;\";";
@@ -301,7 +444,8 @@ CGImageRef getCurrentDisplayImage(CGDirectDisplayID displayID) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.01 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
             [self performImageUpdate];
         });
-        [NSTimer scheduledTimerWithTimeInterval:stayOnSlideTime.intValue + 1 //1.0
+        // Store timer reference to prevent memory leaks
+        animationTimer = [NSTimer scheduledTimerWithTimeInterval:stayOnSlideTime.intValue + 1 //1.0
                                          target:self
                                        selector:@selector(performImageUpdate)
                                        userInfo:nil
