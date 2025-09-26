@@ -7,6 +7,7 @@
 //
 
 #import "PeopleView.h"
+#import <QuartzCore/QuartzCore.h>
 
 static BOOL mdmMode = true;
 static BOOL debugMode = false;
@@ -17,6 +18,10 @@ static NSString *emptySpaceFillImage = @"";
 
 static CGFloat resizeWidth = 0.05; // resize
 static CGFloat resizeHeight = 0.05; // resize
+
+// Animation properties for smooth slide transitions
+static CGFloat slideTransitionDuration = 0.8; // seconds
+static NSViewAnimation *currentSlideAnimation;
 
 static NSString *currentLink = @"";
 static NSTimer *timer;
@@ -55,6 +60,8 @@ static CIContext *sharedContext;
         }
         
         self.webView = [[WKWebViewCustom alloc] initWithFrame:CGRectMake(0, 0, frame.size.width, frame.size.height) configuration:config];
+        // Enable layer-backed view for smooth animations
+        self.webView.wantsLayer = YES;
         [self addSubview:self.webView];
         self.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
         self.autoresizesSubviews = YES;
@@ -68,6 +75,13 @@ static CIContext *sharedContext;
             [self showDebugMessage:[NSString stringWithFormat:@"initial parent view rect: %@", NSStringFromRect(self.frame)]];
             [self showDebugMessage:[NSString stringWithFormat:@"initial web view rect: %@", NSStringFromRect(self.webView.frame)]];
         }
+        
+        // Register for display change notifications to handle external displays
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                 selector:@selector(displayConfigurationChanged:)
+                                                     name:NSApplicationDidChangeScreenParametersNotification
+                                                   object:nil];
+        
         
         if (mdmMode) {
             [self loadMdm];
@@ -106,26 +120,100 @@ static CIContext *sharedContext;
         // macOS 10.15+ cleanup
         [self.webView loadHTMLString:@"" baseURL:nil];
     }
+    
 }
 
 - (void)setFrame:(NSRect)frameRect {
     [super setFrame:frameRect];
     
-    NSString *moduleName = [NSBundle bundleForClass:self.class].bundleIdentifier;
-    NSUserDefaults *def = [[NSUserDefaults alloc] initWithSuiteName:moduleName];
-    NSNumber *zoom = [def objectForKey:zoomFullScreenKey];
-    
-    if (zoom.boolValue) {
-        [self.webView setFrame:NSMakeRect(-(resizeWidth*self.bounds.size.width), -(resizeHeight*self.bounds.size.height), self.bounds.size.width*(1+2*resizeWidth), self.bounds.size.height*(1 + 2 * resizeHeight))];
-    } else {
-        [self.webView setFrame:frameRect];
-        [self.webView setFrameSize:[self.webView convertSize:frameRect.size fromView:nil]];
-    }
+    // Handle external display support
+    [self updateWebViewForCurrentDisplay];
     
     if (debugMode) {
         [self showDebugMessage:[NSString stringWithFormat:@"setFrame parent view rect: %@", NSStringFromRect(self.frame)]];
         [self showDebugMessage:[NSString stringWithFormat:@"setFrame web view rect: %@", NSStringFromRect(self.webView.frame)]];
+        [self showDebugMessage:[NSString stringWithFormat:@"Current display: %@", [self getCurrentDisplayInfo]]];
     }
+}
+
+- (void)updateWebViewForCurrentDisplay {
+    NSString *moduleName = [NSBundle bundleForClass:self.class].bundleIdentifier;
+    NSUserDefaults *def = [[NSUserDefaults alloc] initWithSuiteName:moduleName];
+    NSNumber *zoom = [def objectForKey:zoomFullScreenKey];
+    
+    // Get current screen information for external display support
+    NSScreen *currentScreen = [self.window screen] ?: [NSScreen mainScreen];
+    NSRect screenFrame = currentScreen.frame;
+    CGFloat aspectRatio = screenFrame.size.width / screenFrame.size.height;
+    
+    if (zoom.boolValue) {
+        // Fixed scaling logic to prevent double scaling on ultra-wide monitors
+        CGFloat dynamicResizeWidth = resizeWidth;
+        CGFloat dynamicResizeHeight = resizeHeight;
+        
+        // Handle ultra-wide displays with conservative scaling
+        if (aspectRatio > 2.0) {
+            // Ultra-wide displays (21:9, 32:9, etc.) - use fixed scaling to prevent over-scaling
+            dynamicResizeWidth = MIN(resizeWidth, 0.03);   // Max 3% for ultra-wide
+            dynamicResizeHeight = MIN(resizeHeight, 0.03); // Max 3% for ultra-wide
+        } else if (aspectRatio > 1.0) {
+            // Normal horizontal displays - use conservative aspect ratio adjustment
+            dynamicResizeHeight = resizeWidth * MIN(aspectRatio, 1.5); // Limit to 1.5x to prevent extreme scaling
+        } else {
+            // Vertical orientation - maintain aspect ratio
+            dynamicResizeWidth = resizeHeight / aspectRatio;
+        }
+        
+        // Additional safety limits to prevent extreme scaling
+        dynamicResizeWidth = MIN(dynamicResizeWidth, 0.08);  // Max 8% width scaling
+        dynamicResizeHeight = MIN(dynamicResizeHeight, 0.08); // Max 8% height scaling
+        
+        [self.webView setFrame:NSMakeRect(-(dynamicResizeWidth*self.bounds.size.width), 
+                                         -(dynamicResizeHeight*self.bounds.size.height), 
+                                         self.bounds.size.width*(1+2*dynamicResizeWidth), 
+                                         self.bounds.size.height*(1 + 2 * dynamicResizeHeight))];
+        
+        if (debugMode) {
+            [self showDebugMessage:[NSString stringWithFormat:@"Ultra-wide scaling: width=%.3f, height=%.3f, aspect=%.2f", 
+                                   dynamicResizeWidth, dynamicResizeHeight, aspectRatio]];
+        }
+    } else {
+        [self.webView setFrame:self.bounds];
+        [self.webView setFrameSize:[self.webView convertSize:self.bounds.size fromView:nil]];
+    }
+}
+
+- (NSString *)getCurrentDisplayInfo {
+    NSScreen *currentScreen = [self.window screen] ?: [NSScreen mainScreen];
+    NSRect screenFrame = currentScreen.frame;
+    CGFloat aspectRatio = screenFrame.size.width / screenFrame.size.height;
+    NSString *orientation = aspectRatio > 1.0 ? @"Horizontal" : @"Vertical";
+    
+    // Detect ultra-wide displays
+    NSString *displayType = @"";
+    if (aspectRatio > 2.0) {
+        displayType = @" [ULTRA-WIDE]";
+    } else if (aspectRatio > 1.5) {
+        displayType = @" [WIDE]";
+    }
+    
+    return [NSString stringWithFormat:@"%@ (%@) - %@%@", 
+            currentScreen.localizedName ?: @"Unknown Display",
+            orientation,
+            NSStringFromSize(screenFrame.size),
+            displayType];
+}
+
+- (void)displayConfigurationChanged:(NSNotification *)notification {
+    // Handle external display connection/disconnection
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self updateWebViewForCurrentDisplay];
+        
+        if (debugMode) {
+            [self showDebugMessage:@"Display configuration changed - updating layout"];
+            [self showDebugMessage:[self getCurrentDisplayInfo]];
+        }
+    });
 }
 
 - (void)startAnimation {
@@ -144,6 +232,15 @@ static CIContext *sharedContext;
         [animationTimer invalidate];
         animationTimer = nil;
     }
+    
+    // Clean up slide animation
+    if (currentSlideAnimation) {
+        [currentSlideAnimation stopAnimation];
+        currentSlideAnimation = nil;
+    }
+    
+    // Remove display change notification observer
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
     
     // Clear web view delegate to prevent retain cycles
     self.webView.navigationDelegate = nil;
@@ -193,7 +290,10 @@ static CIContext *sharedContext;
         [self saveCurrentSlide];
     } else {
         if (self.currentSlide < self.maxSlides) {
-            self.currentSlide ++;
+            // Animate slide transition first, then change slide
+            [self animateSlideTransitionWithCompletion:^{
+                self.currentSlide++;
+            }];
         } else {
             [self loadInfoMessage:noMoreSlidesError];
         }
@@ -202,6 +302,75 @@ static CIContext *sharedContext;
 
 - (BOOL)hasConfigureSheet {
     return NO;
+}
+
+- (void)animateSlideTransitionWithCompletion:(void(^)(void))completion {
+    // Cancel any existing animation
+    if (currentSlideAnimation) {
+        [currentSlideAnimation stopAnimation];
+        currentSlideAnimation = nil;
+    }
+    
+    // Create smooth slide transition animation
+    NSRect currentFrame = self.webView.frame;
+    NSRect startFrame = currentFrame;
+    NSRect endFrame = currentFrame;
+    
+    // Create a subtle zoom and fade effect
+    CGFloat zoomFactor = 1.05;
+    CGFloat fadeAlpha = 0.7;
+    
+    // Set up the animation
+    NSDictionary *animationDict = @{
+        NSViewAnimationTargetKey: self.webView,
+        NSViewAnimationStartFrameKey: [NSValue valueWithRect:startFrame],
+        NSViewAnimationEndFrameKey: [NSValue valueWithRect:endFrame],
+        NSViewAnimationEffectKey: NSViewAnimationFadeInEffect
+    };
+    
+    currentSlideAnimation = [[NSViewAnimation alloc] initWithViewAnimations:@[animationDict]];
+    currentSlideAnimation.duration = slideTransitionDuration;
+    currentSlideAnimation.animationCurve = NSAnimationEaseInOut;
+    currentSlideAnimation.animationBlockingMode = NSAnimationNonblocking;
+    
+    // Add a subtle scale animation using Core Animation
+    CABasicAnimation *scaleAnimation = [CABasicAnimation animationWithKeyPath:@"transform.scale"];
+    scaleAnimation.fromValue = @(1.0);
+    scaleAnimation.toValue = @(zoomFactor);
+    scaleAnimation.duration = slideTransitionDuration * 0.5;
+    scaleAnimation.autoreverses = YES;
+    scaleAnimation.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
+    
+    // Add fade animation
+    CABasicAnimation *fadeAnimation = [CABasicAnimation animationWithKeyPath:@"opacity"];
+    fadeAnimation.fromValue = @(1.0);
+    fadeAnimation.toValue = @(fadeAlpha);
+    fadeAnimation.duration = slideTransitionDuration * 0.3;
+    fadeAnimation.autoreverses = YES;
+    fadeAnimation.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
+    
+    // Apply animations to webView layer
+    if (self.webView.layer) {
+        [self.webView.layer addAnimation:scaleAnimation forKey:@"slideScale"];
+        [self.webView.layer addAnimation:fadeAnimation forKey:@"slideFade"];
+    }
+    
+    // Start the animation
+    [currentSlideAnimation startAnimation];
+    
+    // Clean up after animation completes and call completion
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(slideTransitionDuration * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        if (self.webView.layer) {
+            [self.webView.layer removeAnimationForKey:@"slideScale"];
+            [self.webView.layer removeAnimationForKey:@"slideFade"];
+        }
+        currentSlideAnimation = nil;
+        
+        // Call completion block
+        if (completion) {
+            completion();
+        }
+    });
 }
 
 - (NSWindow*)configureSheet {
@@ -292,7 +461,8 @@ static CIContext *sharedContext;
         [self.webView loadRequest:request];
         
         if (zoom.boolValue) {
-            [self.webView setFrame:NSMakeRect(-(resizeWidth*self.bounds.size.width), -(resizeHeight*self.bounds.size.height), self.bounds.size.width*(1+2*resizeWidth), self.bounds.size.height*(1 + 2 * resizeHeight))];
+            // Use the new display-aware scaling method
+            [self updateWebViewForCurrentDisplay];
         }
     } else {
         [self loadErrorPage];
@@ -408,6 +578,7 @@ CGImageRef getCurrentDisplayImage(CGDirectDisplayID displayID) {
     }
 }
 
+
 - (void)setImageBack {
     if (self.imageView == nil) {
         double width = self.window.screen.frame.size.width;
@@ -441,7 +612,8 @@ CGImageRef getCurrentDisplayImage(CGDirectDisplayID displayID) {
     NSLog(@"People.AI screensaver didFinishNavigation");
     
     if ([emptySpaceFillMode isEqualToString:@"dynamic"]) {
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.01 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+        // Immediate background update for better responsiveness
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.1 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
             [self performImageUpdate];
         });
         // Store timer reference to prevent memory leaks
