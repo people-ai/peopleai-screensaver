@@ -52,4 +52,12 @@ static NSString *noMoreSlidesError = @"<html><body><b>No more slides</b></body><
 - (void)handleMacOS15StopAnimation;
 - (void)handleOlderMacOSStopAnimation;
 
+// Slide transition animation
+- (void)animateSlideTransitionWithCompletion:(void(^)(void))completion;
+
+// External display support
+- (void)updateWebViewForCurrentDisplay;
+- (NSString *)getCurrentDisplayInfo;
+- (void)displayConfigurationChanged:(NSNotification *)notification;
+
 @end
