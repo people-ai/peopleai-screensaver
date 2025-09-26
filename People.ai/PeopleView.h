@@ -47,6 +47,7 @@ static NSString *noMoreSlidesError = @"<html><body><b>No more slides</b></body><
 @property (nonatomic) int currentSlide;
 @property (nonatomic) int maxSlides;
 @property (nonatomic) int slideTime;
+@property (nonatomic, strong) NSArray<NSString *> *slides;
 
 // Method declarations for macOS version compatibility
 - (void)handleMacOS15StopAnimation;
@@ -59,5 +60,10 @@ static NSString *noMoreSlidesError = @"<html><body><b>No more slides</b></body><
 - (void)updateWebViewForCurrentDisplay;
 - (NSString *)getCurrentDisplayInfo;
 - (void)displayConfigurationChanged:(NSNotification *)notification;
+
+// Slide management methods
+- (void)loadCurrentSlide;
+- (void)preloadNextSlide;
+- (void)initializeSlidesFromLink:(NSString *)link;
 
 @end

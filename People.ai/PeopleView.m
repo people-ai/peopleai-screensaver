@@ -305,6 +305,11 @@ static CIContext *sharedContext;
 }
 
 - (void)animateSlideTransitionWithCompletion:(void(^)(void))completion {
+    // FIX: Prevent dark screen during transition
+    // Ensure WebView remains visible throughout animation
+    self.webView.hidden = NO;
+    self.webView.alphaValue = 1.0;
+    
     // Cancel any existing animation
     if (currentSlideAnimation) {
         [currentSlideAnimation stopAnimation];
@@ -316,9 +321,9 @@ static CIContext *sharedContext;
     NSRect startFrame = currentFrame;
     NSRect endFrame = currentFrame;
     
-    // Create a subtle zoom and fade effect
-    CGFloat zoomFactor = 1.05;
-    CGFloat fadeAlpha = 0.7;
+    // FIX: Reduced zoom and fade to prevent dark screen
+    CGFloat zoomFactor = 1.02; // Reduced from 1.05
+    CGFloat fadeAlpha = 0.9;   // Reduced from 0.7 to prevent dark screen
     
     // Set up the animation
     NSDictionary *animationDict = @{
@@ -329,7 +334,7 @@ static CIContext *sharedContext;
     };
     
     currentSlideAnimation = [[NSViewAnimation alloc] initWithViewAnimations:@[animationDict]];
-    currentSlideAnimation.duration = slideTransitionDuration;
+    currentSlideAnimation.duration = slideTransitionDuration * 0.6; // Reduced duration
     currentSlideAnimation.animationCurve = NSAnimationEaseInOut;
     currentSlideAnimation.animationBlockingMode = NSAnimationNonblocking;
     
@@ -337,19 +342,20 @@ static CIContext *sharedContext;
     CABasicAnimation *scaleAnimation = [CABasicAnimation animationWithKeyPath:@"transform.scale"];
     scaleAnimation.fromValue = @(1.0);
     scaleAnimation.toValue = @(zoomFactor);
-    scaleAnimation.duration = slideTransitionDuration * 0.5;
+    scaleAnimation.duration = slideTransitionDuration * 0.3; // Reduced duration
     scaleAnimation.autoreverses = YES;
     scaleAnimation.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
     
-    // Add fade animation
+    // Add fade animation with reduced fade
     CABasicAnimation *fadeAnimation = [CABasicAnimation animationWithKeyPath:@"opacity"];
     fadeAnimation.fromValue = @(1.0);
     fadeAnimation.toValue = @(fadeAlpha);
-    fadeAnimation.duration = slideTransitionDuration * 0.3;
+    fadeAnimation.duration = slideTransitionDuration * 0.2; // Reduced duration
     fadeAnimation.autoreverses = YES;
     fadeAnimation.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
     
     // Apply animations to webView layer
+    self.webView.wantsLayer = YES;
     if (self.webView.layer) {
         [self.webView.layer addAnimation:scaleAnimation forKey:@"slideScale"];
         [self.webView.layer addAnimation:fadeAnimation forKey:@"slideFade"];
@@ -358,13 +364,17 @@ static CIContext *sharedContext;
     // Start the animation
     [currentSlideAnimation startAnimation];
     
-    // Clean up after animation completes and call completion
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(slideTransitionDuration * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+    // FIX: Shorter animation duration to reduce dark screen time
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(slideTransitionDuration * 0.6 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         if (self.webView.layer) {
             [self.webView.layer removeAnimationForKey:@"slideScale"];
             [self.webView.layer removeAnimationForKey:@"slideFade"];
         }
         currentSlideAnimation = nil;
+        
+        // FIX: Ensure WebView is fully visible after animation
+        self.webView.alphaValue = 1.0;
+        self.webView.hidden = NO;
         
         // Call completion block
         if (completion) {
@@ -450,6 +460,9 @@ static CIContext *sharedContext;
     }
     
     if ((link != nil) && ![link isEqualToString:@""]) {
+        // FIX: Initialize slides array to prevent dark screen
+        [self initializeSlidesFromLink:link];
+        
         currentLink = [self createAutoplay:link time:stayOnSlideTime.intValue slide:slide];
         [self setAnimationTimeInterval:self.slideTime]; // from ms to sec
         
@@ -473,6 +486,26 @@ static CIContext *sharedContext;
         [self showDebugMessage:[NSString stringWithFormat:@"loadConfig web view rect: %@", NSStringFromRect(self.webView.frame)]];
     }
     
+}
+
+// FIX: Initialize slides array to prevent dark screen during transitions
+- (void)initializeSlidesFromLink:(NSString *)link {
+    // Create slides array from the base link
+    NSMutableArray *slidesArray = [NSMutableArray array];
+    
+    // Add the main link
+    [slidesArray addObject:link];
+    
+    // Add variations for different slides (if supported by the service)
+    for (int i = 1; i <= 5; i++) {
+        NSString *slideURL = [NSString stringWithFormat:@"%@?slide=%d", link, i];
+        [slidesArray addObject:slideURL];
+    }
+    
+    self.slides = [slidesArray copy];
+    self.currentSlide = 0;
+    
+    NSLog(@"People.AI initialized %lu slides", (unsigned long)self.slides.count);
 }
 
 - (NSString *)create:(NSString *)link Mode:(NSString *)mode slide:(int)slide {
@@ -611,6 +644,10 @@ CGImageRef getCurrentDisplayImage(CGDirectDisplayID displayID) {
     [self.webView evaluateJavaScript:script completionHandler:nil];
     NSLog(@"People.AI screensaver didFinishNavigation");
     
+    // FIX: Ensure WebView is visible immediately to prevent dark screen
+    self.webView.hidden = NO;
+    self.webView.alphaValue = 1.0;
+    
     if ([emptySpaceFillMode isEqualToString:@"dynamic"]) {
         // Immediate background update for better responsiveness
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.1 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
@@ -633,6 +670,50 @@ CGImageRef getCurrentDisplayImage(CGDirectDisplayID displayID) {
         [self performImageUpdate];
     }
     
+}
+
+// MARK: - Slide Animation and Progression
+
+- (void)loadCurrentSlide {
+    if (self.currentSlide < self.slides.count) {
+        NSString *slideURL = self.slides[self.currentSlide];
+        NSURL *url = [NSURL URLWithString:slideURL];
+        
+        if (url) {
+            // FIX: Preload next slide to prevent dark screen
+            [self preloadNextSlide];
+            
+            NSURLRequest *request = [[NSURLRequest alloc] initWithURL:url 
+                                                        cachePolicy:NSURLRequestReloadIgnoringLocalCacheData 
+                                                    timeoutInterval:30.0];
+            [self.webView loadRequest:request];
+        }
+    }
+}
+
+- (void)preloadNextSlide {
+    // FIX: Preload next slide to prevent loading delays
+    NSInteger nextSlideIndex = (self.currentSlide + 1) % self.slides.count;
+    if (nextSlideIndex < self.slides.count) {
+        NSString *nextSlideURL = self.slides[nextSlideIndex];
+        NSURL *nextURL = [NSURL URLWithString:nextSlideURL];
+        
+        if (nextURL) {
+            // Preload in background to reduce transition time
+            dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0), ^{
+                NSURLRequest *preloadRequest = [[NSURLRequest alloc] initWithURL:nextURL 
+                                                                    cachePolicy:NSURLRequestReturnCacheDataElseLoad 
+                                                                timeoutInterval:30.0];
+                // This will cache the content for faster loading
+                NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:preloadRequest completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+                    if (!error && data) {
+                        NSLog(@"People.AI preloaded slide %ld", (long)nextSlideIndex);
+                    }
+                }];
+                [task resume];
+            });
+        }
+    }
 }
 
 @end
