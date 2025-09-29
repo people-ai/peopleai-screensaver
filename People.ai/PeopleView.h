@@ -47,6 +47,22 @@ static NSString *noMoreSlidesError = @"<html><body><b>No more slides</b></body><
 @property (nonatomic) int currentSlide;
 @property (nonatomic) int maxSlides;
 @property (nonatomic) int slideTime;
+@property (nonatomic, strong) NSArray<NSString *> *slides;
+
+// Instance-specific slide management properties (replacing static variables)
+@property (nonatomic, strong) NSMutableDictionary *slideCache;
+@property (nonatomic, strong) NSMutableSet *loadingSlides;
+@property (nonatomic) NSInteger currentSlideIndex;
+@property (nonatomic) BOOL isFirstLoop;
+@property (nonatomic, strong) NSTimer *instanceTimer;
+@property (nonatomic, strong) NSTimer *instanceAnimationTimer;
+@property (nonatomic, strong) NSString *instanceCurrentLink;
+
+// Instance-specific scaling properties (replacing static variables)
+@property (nonatomic) CGFloat instanceResizeWidth;
+@property (nonatomic) CGFloat instanceResizeHeight;
+@property (nonatomic) BOOL scalingApplied;
+@property (nonatomic) BOOL displayDetectionComplete;
 
 // Method declarations for macOS version compatibility
 - (void)handleMacOS15StopAnimation;
@@ -59,5 +75,10 @@ static NSString *noMoreSlidesError = @"<html><body><b>No more slides</b></body><
 - (void)updateWebViewForCurrentDisplay;
 - (NSString *)getCurrentDisplayInfo;
 - (void)displayConfigurationChanged:(NSNotification *)notification;
+
+// Slide management methods
+- (void)loadCurrentSlide;
+- (void)preloadNextSlide;
+- (void)initializeSlidesFromLink:(NSString *)link;
 
 @end
