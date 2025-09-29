@@ -30,6 +30,8 @@ static NSNumber *stayOnSlideTime;
 static NSTimer *animationTimer;
 static CIContext *sharedContext;
 
+// Note: Static variables removed - now using instance properties for multi-desktop support
+
 @implementation PeopleView
 
 - (instancetype)initWithFrame:(NSRect)frame isPreview:(BOOL)isPreview {
@@ -83,6 +85,19 @@ static CIContext *sharedContext;
                                                    object:nil];
         
         
+        // Initialize instance-specific slide cache system for multi-desktop support
+        self.slideCache = [[NSMutableDictionary alloc] init];
+        self.loadingSlides = [[NSMutableSet alloc] init];
+        self.currentSlideIndex = 0;
+        self.isFirstLoop = YES;
+        self.instanceCurrentLink = @"";
+        
+        // Initialize instance-specific scaling properties
+        self.instanceResizeWidth = 0.05;  // Default scaling values
+        self.instanceResizeHeight = 0.05;
+        self.scalingApplied = NO;
+        self.displayDetectionComplete = NO;
+        
         if (mdmMode) {
             [self loadMdm];
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
@@ -95,15 +110,20 @@ static CIContext *sharedContext;
 }
 
 - (void)dealloc {
-    // Clean up timers
-    if (timer) {
-        [timer invalidate];
-        timer = nil;
+    // Clean up instance-specific timers
+    if (self.instanceTimer) {
+        [self.instanceTimer invalidate];
+        self.instanceTimer = nil;
     }
-    if (animationTimer) {
-        [animationTimer invalidate];
-        animationTimer = nil;
+    if (self.instanceAnimationTimer) {
+        [self.instanceAnimationTimer invalidate];
+        self.instanceAnimationTimer = nil;
     }
+    
+    // Clean up instance-specific resources
+    self.slideCache = nil;
+    self.loadingSlides = nil;
+    self.instanceCurrentLink = nil;
     
     // Clear web view delegate
     self.webView.navigationDelegate = nil;
@@ -137,50 +157,56 @@ static CIContext *sharedContext;
 }
 
 - (void)updateWebViewForCurrentDisplay {
+    // Prevent multiple scaling applications
+    if (self.scalingApplied) {
+        NSLog(@"People.AI scaling already applied, skipping to prevent cumulative effects");
+        return;
+    }
+    
     NSString *moduleName = [NSBundle bundleForClass:self.class].bundleIdentifier;
     NSUserDefaults *def = [[NSUserDefaults alloc] initWithSuiteName:moduleName];
     NSNumber *zoom = [def objectForKey:zoomFullScreenKey];
     
-    // Get current screen information for external display support
-    NSScreen *currentScreen = [self.window screen] ?: [NSScreen mainScreen];
+    // Validate bounds before proceeding
+    if (self.bounds.size.width <= 0 || self.bounds.size.height <= 0) {
+        NSLog(@"People.AI invalid bounds, skipping scaling: %@", NSStringFromRect(self.bounds));
+        return;
+    }
+    
+    // Get current screen information with validation
+    NSScreen *currentScreen = [self getValidCurrentScreen];
+    if (!currentScreen) {
+        NSLog(@"People.AI no valid screen detected, using default scaling");
+        [self applyDefaultScaling];
+        return;
+    }
+    
     NSRect screenFrame = currentScreen.frame;
+    if (screenFrame.size.width <= 0 || screenFrame.size.height <= 0) {
+        NSLog(@"People.AI invalid screen dimensions, using default scaling");
+        [self applyDefaultScaling];
+        return;
+    }
+    
     CGFloat aspectRatio = screenFrame.size.width / screenFrame.size.height;
     
     if (zoom.boolValue) {
-        // Fixed scaling logic to prevent double scaling on ultra-wide monitors
-        CGFloat dynamicResizeWidth = resizeWidth;
-        CGFloat dynamicResizeHeight = resizeHeight;
+        // Calculate instance-specific scaling based on display characteristics
+        [self calculateInstanceScalingForAspectRatio:aspectRatio];
         
-        // Handle ultra-wide displays with conservative scaling
-        if (aspectRatio > 2.0) {
-            // Ultra-wide displays (21:9, 32:9, etc.) - use fixed scaling to prevent over-scaling
-            dynamicResizeWidth = MIN(resizeWidth, 0.03);   // Max 3% for ultra-wide
-            dynamicResizeHeight = MIN(resizeHeight, 0.03); // Max 3% for ultra-wide
-        } else if (aspectRatio > 1.0) {
-            // Normal horizontal displays - use conservative aspect ratio adjustment
-            dynamicResizeHeight = resizeWidth * MIN(aspectRatio, 1.5); // Limit to 1.5x to prevent extreme scaling
-        } else {
-            // Vertical orientation - maintain aspect ratio
-            dynamicResizeWidth = resizeHeight / aspectRatio;
-        }
-        
-        // Additional safety limits to prevent extreme scaling
-        dynamicResizeWidth = MIN(dynamicResizeWidth, 0.08);  // Max 8% width scaling
-        dynamicResizeHeight = MIN(dynamicResizeHeight, 0.08); // Max 8% height scaling
-        
-        [self.webView setFrame:NSMakeRect(-(dynamicResizeWidth*self.bounds.size.width), 
-                                         -(dynamicResizeHeight*self.bounds.size.height), 
-                                         self.bounds.size.width*(1+2*dynamicResizeWidth), 
-                                         self.bounds.size.height*(1 + 2 * dynamicResizeHeight))];
+        // Apply validated scaling
+        [self applyValidatedScaling];
         
         if (debugMode) {
-            [self showDebugMessage:[NSString stringWithFormat:@"Ultra-wide scaling: width=%.3f, height=%.3f, aspect=%.2f", 
-                                   dynamicResizeWidth, dynamicResizeHeight, aspectRatio]];
+            [self showDebugMessage:[NSString stringWithFormat:@"Instance scaling applied: width=%.3f, height=%.3f, aspect=%.2f", 
+                                   self.instanceResizeWidth, self.instanceResizeHeight, aspectRatio]];
         }
     } else {
-        [self.webView setFrame:self.bounds];
-        [self.webView setFrameSize:[self.webView convertSize:self.bounds.size fromView:nil]];
+        [self applyDefaultScaling];
     }
+    
+    self.scalingApplied = YES;
+    self.displayDetectionComplete = YES;
 }
 
 - (NSString *)getCurrentDisplayInfo {
@@ -205,14 +231,21 @@ static CIContext *sharedContext;
 }
 
 - (void)displayConfigurationChanged:(NSNotification *)notification {
-    // Handle external display connection/disconnection
+    // Handle external display connection/disconnection with instance-specific handling
     dispatch_async(dispatch_get_main_queue(), ^{
-        [self updateWebViewForCurrentDisplay];
+        // Reset scaling state to allow re-detection
+        self.scalingApplied = NO;
+        self.displayDetectionComplete = NO;
         
-        if (debugMode) {
-            [self showDebugMessage:@"Display configuration changed - updating layout"];
-            [self showDebugMessage:[self getCurrentDisplayInfo]];
-        }
+        // Delay display detection to prevent race conditions in multi-desktop mode
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.5 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+            [self updateWebViewForCurrentDisplay];
+            
+            if (debugMode) {
+                [self showDebugMessage:@"Display configuration changed - updating layout"];
+                [self showDebugMessage:[self getCurrentDisplayInfo]];
+            }
+        });
     });
 }
 
@@ -223,14 +256,14 @@ static CIContext *sharedContext;
 - (void)stopAnimation {
     [super stopAnimation];
     
-    // Clean up timers to prevent memory leaks
-    if (timer) {
-        [timer invalidate];
-        timer = nil;
+    // Clean up instance-specific timers to prevent memory leaks
+    if (self.instanceTimer) {
+        [self.instanceTimer invalidate];
+        self.instanceTimer = nil;
     }
-    if (animationTimer) {
-        [animationTimer invalidate];
-        animationTimer = nil;
+    if (self.instanceAnimationTimer) {
+        [self.instanceAnimationTimer invalidate];
+        self.instanceAnimationTimer = nil;
     }
     
     // Clean up slide animation
@@ -288,6 +321,8 @@ static CIContext *sharedContext;
 - (void)animateOneFrame {
     if (mdmMode) {
         [self saveCurrentSlide];
+        // For now, just use original logic - don't progress slides automatically
+        // The slide progression will be handled by the autoplay functionality
     } else {
         if (self.currentSlide < self.maxSlides) {
             // Animate slide transition first, then change slide
@@ -416,14 +451,14 @@ static CIContext *sharedContext;
     
     double interval = viewRefreshTime.doubleValue;
     if (interval >= 1.0) {
-        // Invalidate existing timer to prevent multiple timers
-        if (timer) {
-            [timer invalidate];
+        // Invalidate existing instance timer to prevent multiple timers
+        if (self.instanceTimer) {
+            [self.instanceTimer invalidate];
         }
         
         // Use weak reference to prevent retain cycle
         __weak typeof(self) weakSelf = self;
-        timer = [NSTimer scheduledTimerWithTimeInterval:interval repeats:YES block:^(NSTimer *timer) {
+        self.instanceTimer = [NSTimer scheduledTimerWithTimeInterval:interval repeats:YES block:^(NSTimer *timer) {
             __strong typeof(weakSelf) strongSelf = weakSelf;
             if (strongSelf && !strongSelf.hidden) {
                 [strongSelf loadMdm];
@@ -460,22 +495,31 @@ static CIContext *sharedContext;
     }
     
     if ((link != nil) && ![link isEqualToString:@""]) {
-        // FIX: Initialize slides array to prevent dark screen
+        // Initialize slides array for background loading
         [self initializeSlidesFromLink:link];
         
-        currentLink = [self createAutoplay:link time:stayOnSlideTime.intValue slide:slide];
-        [self setAnimationTimeInterval:self.slideTime]; // from ms to sec
+        // Use original logic for first slide to ensure it works
+        self.instanceCurrentLink = [self createAutoplay:link time:stayOnSlideTime.intValue slide:slide];
+        [self setAnimationTimeInterval:stayOnSlideTime.doubleValue]; // Use MDM config directly
+        
+        NSLog(@"People.AI loading first slide with URL: %@", self.instanceCurrentLink);
+        NSLog(@"People.AI slide time: %@ seconds", stayOnSlideTime);
         
         // Create request with timeout to prevent hanging
-        NSURLRequest *request = [[NSURLRequest alloc] initWithURL:[NSURL URLWithString:currentLink] 
+        NSURLRequest *request = [[NSURLRequest alloc] initWithURL:[NSURL URLWithString:self.instanceCurrentLink] 
                                                     cachePolicy:NSURLRequestReloadIgnoringLocalCacheData 
                                                 timeoutInterval:30.0];
         self.webView.navigationDelegate = self;
         [self.webView loadRequest:request];
         
+        // Start background loading of next slide
+        [self startBackgroundLoadingOfNextSlide];
+        
         if (zoom.boolValue) {
-            // Use the new display-aware scaling method
-            [self updateWebViewForCurrentDisplay];
+            // Use the new instance-specific scaling method with delay to prevent race conditions
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.3 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+                [self updateWebViewForCurrentDisplay];
+            });
         }
     } else {
         [self loadErrorPage];
@@ -488,12 +532,12 @@ static CIContext *sharedContext;
     
 }
 
-// FIX: Initialize slides array to prevent dark screen during transitions
+// Initialize slides array for background loading
 - (void)initializeSlidesFromLink:(NSString *)link {
     // Create slides array from the base link
     NSMutableArray *slidesArray = [NSMutableArray array];
     
-    // Add the main link
+    // Add the main link as slide 0
     [slidesArray addObject:link];
     
     // Add variations for different slides (if supported by the service)
@@ -503,9 +547,10 @@ static CIContext *sharedContext;
     }
     
     self.slides = [slidesArray copy];
-    self.currentSlide = 0;
+    self.currentSlideIndex = 0;
+    self.isFirstLoop = YES;
     
-    NSLog(@"People.AI initialized %lu slides", (unsigned long)self.slides.count);
+    NSLog(@"People.AI initialized %lu slides for background loading", (unsigned long)self.slides.count);
 }
 
 - (NSString *)create:(NSString *)link Mode:(NSString *)mode slide:(int)slide {
@@ -642,7 +687,13 @@ CGImageRef getCurrentDisplayImage(CGDirectDisplayID displayID) {
     
     NSString *script = @"document.body.style = document.body.style.cssText + \";background: transparent !important;\";";
     [self.webView evaluateJavaScript:script completionHandler:nil];
-    NSLog(@"People.AI screensaver didFinishNavigation");
+    NSLog(@"People.AI screensaver didFinishNavigation for slide %ld", (long)self.currentSlideIndex);
+    
+    // Cache the current slide if it's the first loop
+    if (self.isFirstLoop && self.currentSlideIndex < self.slides.count) {
+        NSString *currentSlideURL = self.slides[self.currentSlideIndex];
+        [self cacheCurrentSlideContent:currentSlideURL];
+    }
     
     // FIX: Ensure WebView is visible immediately to prevent dark screen
     self.webView.hidden = NO;
@@ -653,8 +704,8 @@ CGImageRef getCurrentDisplayImage(CGDirectDisplayID displayID) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.1 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
             [self performImageUpdate];
         });
-        // Store timer reference to prevent memory leaks
-        animationTimer = [NSTimer scheduledTimerWithTimeInterval:stayOnSlideTime.intValue + 1 //1.0
+        // Store instance timer reference to prevent memory leaks
+        self.instanceAnimationTimer = [NSTimer scheduledTimerWithTimeInterval:stayOnSlideTime.intValue + 1 //1.0
                                          target:self
                                        selector:@selector(performImageUpdate)
                                        userInfo:nil
@@ -691,29 +742,214 @@ CGImageRef getCurrentDisplayImage(CGDirectDisplayID displayID) {
     }
 }
 
-- (void)preloadNextSlide {
-    // FIX: Preload next slide to prevent loading delays
-    NSInteger nextSlideIndex = (self.currentSlide + 1) % self.slides.count;
-    if (nextSlideIndex < self.slides.count) {
-        NSString *nextSlideURL = self.slides[nextSlideIndex];
-        NSURL *nextURL = [NSURL URLWithString:nextSlideURL];
+// MARK: - New Slide Progression and Background Loading System
+
+- (void)loadCurrentSlideWithBackgroundPreload {
+    if (self.currentSlideIndex < self.slides.count) {
+        NSString *slideURL = self.slides[self.currentSlideIndex];
         
+        // Check if slide is already cached
+        if (self.slideCache[slideURL] && !self.isFirstLoop) {
+            NSLog(@"People.AI using cached slide %ld", (long)self.currentSlideIndex);
+            [self loadCachedSlide:slideURL];
+        } else {
+            NSLog(@"People.AI loading slide %ld from network", (long)self.currentSlideIndex);
+            [self loadSlideFromNetwork:slideURL];
+        }
+        
+        // Start background loading of next slide
+        [self startBackgroundLoadingOfNextSlide];
+    }
+}
+
+- (void)loadCachedSlide:(NSString *)slideURL {
+    // Load cached slide content
+    NSData *cachedData = self.slideCache[slideURL];
+    if (cachedData) {
+        NSString *htmlContent = [[NSString alloc] initWithData:cachedData encoding:NSUTF8StringEncoding];
+        // Create proper autoplay URL for the base URL
+        NSString *autoplayURL = [self createAutoplay:slideURL time:stayOnSlideTime.intValue slide:self.currentSlideIndex];
+        [self.webView loadHTMLString:htmlContent baseURL:[NSURL URLWithString:autoplayURL]];
+    }
+}
+
+- (void)loadSlideFromNetwork:(NSString *)slideURL {
+    // Create proper autoplay URL for the slide
+    // For slides after the first one, use the slide number from the URL or currentSlideIndex
+    int slideNumber = self.currentSlideIndex;
+    if (self.currentSlideIndex > 0) {
+        slideNumber = self.currentSlideIndex;
+    }
+    
+    NSString *autoplayURL = [self createAutoplay:slideURL time:stayOnSlideTime.intValue slide:slideNumber];
+    NSURL *url = [NSURL URLWithString:autoplayURL];
+    if (url) {
+        NSURLRequest *request = [[NSURLRequest alloc] initWithURL:url 
+                                                    cachePolicy:NSURLRequestReloadIgnoringLocalCacheData 
+                                                timeoutInterval:30.0];
+        self.webView.navigationDelegate = self;
+        [self.webView loadRequest:request];
+    }
+}
+
+- (void)startBackgroundLoadingOfNextSlide {
+    NSInteger nextSlideIndex = (self.currentSlideIndex + 1) % self.slides.count;
+    NSString *nextSlideURL = self.slides[nextSlideIndex];
+    
+    // Skip if already loading or cached
+    if ([self.loadingSlides containsObject:nextSlideURL] || (self.slideCache[nextSlideURL] && !self.isFirstLoop)) {
+        return;
+    }
+    
+    [self.loadingSlides addObject:nextSlideURL];
+    
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0), ^{
+        // Create proper autoplay URL for background loading
+        NSString *autoplayURL = [self createAutoplay:nextSlideURL time:stayOnSlideTime.intValue slide:nextSlideIndex];
+        NSURL *nextURL = [NSURL URLWithString:autoplayURL];
         if (nextURL) {
-            // Preload in background to reduce transition time
-            dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0), ^{
-                NSURLRequest *preloadRequest = [[NSURLRequest alloc] initWithURL:nextURL 
-                                                                    cachePolicy:NSURLRequestReturnCacheDataElseLoad 
-                                                                timeoutInterval:30.0];
-                // This will cache the content for faster loading
-                NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:preloadRequest completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+            NSURLRequest *preloadRequest = [[NSURLRequest alloc] initWithURL:nextURL 
+                                                                cachePolicy:NSURLRequestReturnCacheDataElseLoad 
+                                                            timeoutInterval:30.0];
+            
+            NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:preloadRequest completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [self.loadingSlides removeObject:nextSlideURL];
+                    
                     if (!error && data) {
-                        NSLog(@"People.AI preloaded slide %ld", (long)nextSlideIndex);
+                        self.slideCache[nextSlideURL] = data;
+                        NSLog(@"People.AI cached slide %ld in background", (long)nextSlideIndex);
+                    } else {
+                        NSLog(@"People.AI failed to preload slide %ld: %@", (long)nextSlideIndex, error.localizedDescription);
                     }
-                }];
-                [task resume];
-            });
+                });
+            }];
+            [task resume];
+        }
+    });
+}
+
+- (void)progressToNextSlide {
+    // Move to next slide
+    self.currentSlideIndex = (self.currentSlideIndex + 1) % self.slides.count;
+    
+    // Check if we completed first loop
+    if (self.currentSlideIndex == 0 && self.isFirstLoop) {
+        self.isFirstLoop = NO;
+        NSLog(@"People.AI completed first loop, now using cache");
+    }
+    
+    // Load current slide with background preload
+    [self loadCurrentSlideWithBackgroundPreload];
+}
+
+- (void)cacheCurrentSlideContent:(NSString *)slideURL {
+    // Get the HTML content from the web view and cache it
+    [self.webView evaluateJavaScript:@"document.documentElement.outerHTML" completionHandler:^(id result, NSError *error) {
+        if (!error && [result isKindOfClass:[NSString class]]) {
+            NSData *htmlData = [result dataUsingEncoding:NSUTF8StringEncoding];
+            self.slideCache[slideURL] = htmlData;
+            NSLog(@"People.AI cached current slide %ld content", (long)self.currentSlideIndex);
+        }
+    }];
+}
+
+- (void)preloadNextSlide {
+    // Legacy method - now handled by startBackgroundLoadingOfNextSlide
+    [self startBackgroundLoadingOfNextSlide];
+}
+
+// MARK: - Fixed Scaling System for Multi-Desktop Support
+
+- (NSScreen *)getValidCurrentScreen {
+    // Try to get the screen for this instance's window
+    NSScreen *currentScreen = nil;
+    
+    if (self.window && self.window.screen) {
+        currentScreen = self.window.screen;
+    } else {
+        // Fallback to main screen
+        currentScreen = [NSScreen mainScreen];
+    }
+    
+    // Validate the screen
+    if (currentScreen) {
+        NSRect screenFrame = currentScreen.frame;
+        if (screenFrame.size.width > 0 && screenFrame.size.height > 0) {
+            return currentScreen;
         }
     }
+    
+    return nil;
+}
+
+- (void)calculateInstanceScalingForAspectRatio:(CGFloat)aspectRatio {
+    // Reset to default values
+    self.instanceResizeWidth = 0.05;
+    self.instanceResizeHeight = 0.05;
+    
+    // Calculate scaling based on display characteristics
+    if (aspectRatio > 2.0) {
+        // Ultra-wide displays (21:9, 32:9, etc.) - use conservative scaling
+        self.instanceResizeWidth = 0.03;
+        self.instanceResizeHeight = 0.03;
+    } else if (aspectRatio > 1.5) {
+        // Wide displays - moderate scaling
+        self.instanceResizeWidth = 0.04;
+        self.instanceResizeHeight = 0.04;
+    } else if (aspectRatio < 0.7) {
+        // Vertical displays - conservative scaling
+        self.instanceResizeWidth = 0.03;
+        self.instanceResizeHeight = 0.03;
+    } else {
+        // Standard displays - default scaling
+        self.instanceResizeWidth = 0.05;
+        self.instanceResizeHeight = 0.05;
+    }
+    
+    // Apply strict limits to prevent overscaling
+    self.instanceResizeWidth = MIN(self.instanceResizeWidth, 0.01);   // Max 1%
+    self.instanceResizeHeight = MIN(self.instanceResizeHeight, 0.01); // Max 1%
+    
+    NSLog(@"People.AI calculated instance scaling: width=%.3f, height=%.3f for aspect=%.2f", 
+          self.instanceResizeWidth, self.instanceResizeHeight, aspectRatio);
+}
+
+- (void)applyValidatedScaling {
+    // Validate scaling values before applying
+    if (self.instanceResizeWidth <= 0 || self.instanceResizeHeight <= 0 ||
+        self.instanceResizeWidth > 0.1 || self.instanceResizeHeight > 0.1) {
+        NSLog(@"People.AI invalid scaling values, using default");
+        [self applyDefaultScaling];
+        return;
+    }
+    
+    // Calculate new frame with FIXED scaling formula (no cumulative effects)
+    CGFloat offsetX = self.instanceResizeWidth * self.bounds.size.width;
+    CGFloat offsetY = self.instanceResizeHeight * self.bounds.size.height;
+    CGFloat newWidth = self.bounds.size.width + (2 * offsetX);
+    CGFloat newHeight = self.bounds.size.height + (2 * offsetY);
+    
+    // Validate calculated dimensions
+    if (newWidth <= 0 || newHeight <= 0 || newWidth > self.bounds.size.width * 2 || newHeight > self.bounds.size.height * 2) {
+        NSLog(@"People.AI calculated dimensions invalid, using default");
+        [self applyDefaultScaling];
+        return;
+    }
+    
+    // Apply scaling with validated values
+    NSRect newFrame = NSMakeRect(-offsetX, -offsetY, newWidth, newHeight);
+    [self.webView setFrame:newFrame];
+    
+    NSLog(@"People.AI applied validated scaling: frame=%@", NSStringFromRect(newFrame));
+}
+
+- (void)applyDefaultScaling {
+    // Reset to default frame without scaling
+    [self.webView setFrame:self.bounds];
+    [self.webView setFrameSize:[self.webView convertSize:self.bounds.size fromView:nil]];
+    
+    NSLog(@"People.AI applied default scaling: frame=%@", NSStringFromRect(self.bounds));
 }
 
 @end
