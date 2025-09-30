@@ -13,7 +13,6 @@
 #include "NSView+ImageRepresentation.h"
 #include "NSImage+Resize.h"
 
-// Keys
 
 static NSString *urlKey = @"slidesUrl";
 static NSString *timeKey = @"stayOnSlideTime";
@@ -31,7 +30,6 @@ static NSString *configFile = @"ai.people.screensaver";
 
 static NSString *modeMinimal = @"minimal";
 
-// Messages
 
 static NSString *configError = @"<html><body><b>Error while loading config file</b></body></html>";
 static NSString *noMoreSlidesError = @"<html><body><b>No more slides</b></body></html>";
@@ -49,7 +47,6 @@ static NSString *noMoreSlidesError = @"<html><body><b>No more slides</b></body><
 @property (nonatomic) int slideTime;
 @property (nonatomic, strong) NSArray<NSString *> *slides;
 
-// Instance-specific slide management properties (replacing static variables)
 @property (nonatomic, strong) NSMutableDictionary *slideCache;
 @property (nonatomic, strong) NSMutableSet *loadingSlides;
 @property (nonatomic) NSInteger currentSlideIndex;
@@ -58,25 +55,20 @@ static NSString *noMoreSlidesError = @"<html><body><b>No more slides</b></body><
 @property (nonatomic, strong) NSTimer *instanceAnimationTimer;
 @property (nonatomic, strong) NSString *instanceCurrentLink;
 
-// Instance-specific scaling properties (replacing static variables)
 @property (nonatomic) CGFloat instanceResizeWidth;
 @property (nonatomic) CGFloat instanceResizeHeight;
 @property (nonatomic) BOOL scalingApplied;
 @property (nonatomic) BOOL displayDetectionComplete;
 
-// Method declarations for macOS version compatibility
 - (void)handleMacOS15StopAnimation;
 - (void)handleOlderMacOSStopAnimation;
 
-// Slide transition animation
 - (void)animateSlideTransitionWithCompletion:(void(^)(void))completion;
 
-// External display support
 - (void)updateWebViewForCurrentDisplay;
 - (NSString *)getCurrentDisplayInfo;
 - (void)displayConfigurationChanged:(NSNotification *)notification;
 
-// Slide management methods
 - (void)loadCurrentSlide;
 - (void)preloadNextSlide;
 - (void)initializeSlidesFromLink:(NSString *)link;
