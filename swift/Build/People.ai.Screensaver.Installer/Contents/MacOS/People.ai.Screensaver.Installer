@@ -1,3 +1,0 @@
-#!/bin/bash
-# Wrapper script to run the installer
-exec "$(dirname "$0")/install_screensaver.sh"
