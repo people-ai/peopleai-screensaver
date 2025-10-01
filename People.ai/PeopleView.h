@@ -59,6 +59,8 @@ static NSString *noMoreSlidesError = @"<html><body><b>No more slides</b></body><
 @property (nonatomic) CGFloat instanceResizeHeight;
 @property (nonatomic) BOOL scalingApplied;
 @property (nonatomic) BOOL displayDetectionComplete;
+@property (nonatomic) BOOL scalingInProgress;
+@property (nonatomic, strong) dispatch_queue_t scalingQueue;
 
 - (void)handleMacOS15StopAnimation;
 - (void)handleOlderMacOSStopAnimation;

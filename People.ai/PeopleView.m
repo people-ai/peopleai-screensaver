@@ -95,6 +95,8 @@ static CIContext *sharedContext;
         self.instanceResizeHeight = 0.05;
         self.scalingApplied = NO;
         self.displayDetectionComplete = NO;
+        self.scalingInProgress = NO;
+        self.scalingQueue = dispatch_queue_create("com.peopleai.scaling", DISPATCH_QUEUE_SERIAL);
         
         if (mdmMode) {
             [self loadMdm];
@@ -155,56 +157,84 @@ static CIContext *sharedContext;
 }
 
 - (void)updateWebViewForCurrentDisplay {
-    
-    if (self.scalingApplied) {
-        NSLog(@"People.AI scaling already applied, skipping to prevent cumulative effects");
+    // Use async/await pattern to prevent scaling duplication
+    dispatch_async(self.scalingQueue, ^{
+        [self performAsyncScalingUpdate];
+    });
+}
+
+- (void)performAsyncScalingUpdate {
+    // Check if scaling is already in progress or applied
+    if (self.scalingInProgress || self.scalingApplied) {
+        NSLog(@"People.AI scaling already in progress or applied, skipping to prevent duplication");
         return;
     }
     
+    // Set scaling in progress flag
+    self.scalingInProgress = YES;
+    
+    // Validate bounds before proceeding
+    if (self.bounds.size.width <= 0 || self.bounds.size.height <= 0) {
+        NSLog(@"People.AI invalid bounds, skipping scaling: %@", NSStringFromRect(self.bounds));
+        self.scalingInProgress = NO;
+        return;
+    }
+    
+    // Get MDM configuration
     NSString *moduleName = [NSBundle bundleForClass:self.class].bundleIdentifier;
     NSUserDefaults *def = [[NSUserDefaults alloc] initWithSuiteName:moduleName];
     NSNumber *zoom = [def objectForKey:zoomFullScreenKey];
     
-    
-    if (self.bounds.size.width <= 0 || self.bounds.size.height <= 0) {
-        NSLog(@"People.AI invalid bounds, skipping scaling: %@", NSStringFromRect(self.bounds));
-        return;
-    }
-    
-    
+    // Get current screen information with validation
     NSScreen *currentScreen = [self getValidCurrentScreen];
     if (!currentScreen) {
         NSLog(@"People.AI no valid screen detected, using default scaling");
-        [self applyDefaultScaling];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self applyDefaultScaling];
+            self.scalingInProgress = NO;
+            self.scalingApplied = YES;
+        });
         return;
     }
     
     NSRect screenFrame = currentScreen.frame;
     if (screenFrame.size.width <= 0 || screenFrame.size.height <= 0) {
         NSLog(@"People.AI invalid screen dimensions, using default scaling");
-        [self applyDefaultScaling];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self applyDefaultScaling];
+            self.scalingInProgress = NO;
+            self.scalingApplied = YES;
+        });
         return;
     }
     
     CGFloat aspectRatio = screenFrame.size.width / screenFrame.size.height;
     
     if (zoom.boolValue) {
-        
+        // Calculate instance-specific scaling
         [self calculateInstanceScalingForAspectRatio:aspectRatio];
         
-        
-        [self applyValidatedScaling];
-        
-        if (debugMode) {
-            [self showDebugMessage:[NSString stringWithFormat:@"Instance scaling applied: width=%.3f, height=%.3f, aspect=%.2f", 
-                                   self.instanceResizeWidth, self.instanceResizeHeight, aspectRatio]];
-        }
+        // Apply scaling on main queue
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self applyValidatedScaling];
+            self.scalingInProgress = NO;
+            self.scalingApplied = YES;
+            self.displayDetectionComplete = YES;
+            
+            if (debugMode) {
+                [self showDebugMessage:[NSString stringWithFormat:@"Async scaling applied: width=%.3f, height=%.3f, aspect=%.2f", 
+                                       self.instanceResizeWidth, self.instanceResizeHeight, aspectRatio]];
+            }
+        });
     } else {
-        [self applyDefaultScaling];
+        // Apply default scaling on main queue
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self applyDefaultScaling];
+            self.scalingInProgress = NO;
+            self.scalingApplied = YES;
+            self.displayDetectionComplete = YES;
+        });
     }
-    
-    self.scalingApplied = YES;
-    self.displayDetectionComplete = YES;
 }
 
 - (NSString *)getCurrentDisplayInfo {
@@ -229,13 +259,14 @@ static CIContext *sharedContext;
 }
 
 - (void)displayConfigurationChanged:(NSNotification *)notification {
-    
-    dispatch_async(dispatch_get_main_queue(), ^{
-        
+    // Use async pattern to prevent race conditions
+    dispatch_async(self.scalingQueue, ^{
+        // Reset scaling state to allow re-detection
         self.scalingApplied = NO;
         self.displayDetectionComplete = NO;
+        self.scalingInProgress = NO;
         
-        
+        // Delay to prevent race conditions in multi-desktop mode
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.5 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
             [self updateWebViewForCurrentDisplay];
             
@@ -514,7 +545,7 @@ static CIContext *sharedContext;
         [self startBackgroundLoadingOfNextSlide];
         
         if (zoom.boolValue) {
-            
+            // Use async scaling with delay to prevent race conditions
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.3 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
                 [self updateWebViewForCurrentDisplay];
             });
@@ -948,6 +979,15 @@ CGImageRef getCurrentDisplayImage(CGDirectDisplayID displayID) {
     [self.webView setFrameSize:[self.webView convertSize:self.bounds.size fromView:nil]];
     
     NSLog(@"People.AI applied default scaling: frame=%@", NSStringFromRect(self.bounds));
+}
+
+- (void)resetScalingState {
+    // Reset all scaling-related state
+    self.scalingApplied = NO;
+    self.scalingInProgress = NO;
+    self.displayDetectionComplete = NO;
+    
+    NSLog(@"People.AI scaling state reset");
 }
 
 @end
