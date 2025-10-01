@@ -5,6 +5,8 @@
 # Exclude the build directory
 build/*
 Build/*
+swift/Build/*
+swift/build/*
  
 # Exclude temp nibs and swap files
 *~.nib
@@ -37,6 +39,7 @@ DerivedData/
 
 ## App packaging
 *.ipa
+*.pkg
 *.dSYM.zip
 *.dSYM
 
