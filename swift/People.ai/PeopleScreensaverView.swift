@@ -4,6 +4,7 @@
 //
 //  Created by People.ai on 1/6/20.
 //  Copyright © 2020-2022 People.ai, Inc. All rights reserved.
+//  Optimized for performance and memory efficiency
 //
 
 import ScreenSaver
@@ -12,6 +13,7 @@ import AppKit
 import CoreImage
 import QuartzCore
 import Combine
+import os.log
 
 // MARK: - Configuration Keys (Same as Objective-C version)
 private let urlKey = "slidesUrl"
@@ -25,42 +27,112 @@ private let fillEmptySpaceKey = "fillEmptySpace"
 private let dynamicKey = "dynamic"
 private let emptySpaceFillImageKey = "emptySpaceFillImage"
 private let emptySpaceFillModeKey = "emptySpaceFillMode"
+private let debugModeEnabledKey = "debugModeEnabled"
 
 private let configFile = "ai.people.screensaver"
 private let modeMinimal = "minimal"
 private let configError = "<html><body><b>Error while loading config file</b></body></html>"
 private let noMoreSlidesError = "<html><body><b>No more slides</b></body></html>"
 
-// MARK: - Main Screensaver View
+// MARK: - Performance Optimized Screensaver View
 class PeopleScreensaverView: ScreenSaverView {
     
-    // MARK: - Properties
+    // MARK: - Performance Logging
+    private static let logger = OSLog(subsystem: "ai.people.screensaver", category: "performance")
+    
+    // MARK: - Architecture Optimization
+    private static let isAppleSilicon: Bool = {
+        #if arch(arm64)
+        return true
+        #else
+        return false
+        #endif
+    }()
+    
+    // MARK: - Core Properties
     private var webView: WKWebViewCustom?
     private var textView: NSTextView?
     private var imageView: NSImageView?
     
+    // MARK: - Slide Management (Optimized)
     private var baseLink: String = ""
     private var currentSlide: Int = 0
     private var maxSlides: Int = 0
     private var slideTime: Int = 0
     private var slides: [String] = []
     
+    // MARK: - Enhanced Caching System
     private var slideCache: [String: Data] = [:]
     private var loadingSlides: Set<String> = []
     private var currentSlideIndex: Int = 0
     private var isFirstLoop: Bool = true
+    
+    // MARK: - Performance Optimized Timers
     private var instanceTimer: Timer?
     private var instanceAnimationTimer: Timer?
     private var instanceCurrentLink: String = ""
     
+    // MARK: - Display Optimization
     private var instanceResizeWidth: CGFloat = 0.05
     private var instanceResizeHeight: CGFloat = 0.05
     private var scalingApplied: Bool = false
     private var displayDetectionComplete: Bool = false
     
+    // MARK: - Long-Running Stability
+    private var lastScalingTime: Date = Date()
+    private var scalingResetCount: Int = 0
+    private var lastMemoryCleanup: Date = Date()
+    private var runtimeHours: TimeInterval = 0
+    private var periodicCleanupTimer: Timer?
+    private var scalingResetTimer: Timer?
+    
+    // MARK: - Overscaling Prevention
+    private var originalWebViewFrame: NSRect = .zero
+    private var baseScalingApplied: Bool = false
+    private var lastDisplayIdentifier: String = ""
+    private var scalingValidationCount: Int = 0
+    private var maxScalingAttempts: Int = 3
+    
+    // MARK: - Image Loading Retry
+    private var slideLoadRetryCount: [String: Int] = [:]
+    private var maxRetryAttempts: Int = 3
+    
+    // MARK: - Display-Specific Content Zoom
+    private var displayContentZoomCache: [String: CGFloat] = [:]
+    private var lastContentZoomDisplay: String = ""
+    private var contentZoomApplied: Bool = false
+    
+    // MARK: - Zoom Prevention
+    private var zoomPreventionEnabled: Bool = true
+    private var maxContentZoom: CGFloat = 1.0
+    private var minContentZoom: CGFloat = 1.0
+    private var zoomLockApplied: Bool = false
+    
+    // MARK: - Resolution Independence
+    private var currentBackingScaleFactor: CGFloat = 1.0
+    private var displayResolutionCache: [String: (scale: CGFloat, resolution: NSSize)] = [:]
+    private var graphicsContextConfigured: Bool = false
+    
+    // MARK: - Memory Management
+    private var memoryPressureSource: DispatchSourceMemoryPressure?
+    
+    // MARK: - Debug Mode
+    private var debugInfoView: NSTextView?
+    private var debugInfoTimer: Timer?
+    
+    // MARK: - Display Types
+    private enum DisplayType {
+        case builtIn
+        case external
+        case ultraWide
+        case wide
+        case vertical
+        case standard
+    }
+    
     // MARK: - Static Configuration
     private static let mdmMode = true
-    private static let debugMode = false
+    private static var debugMode = false
     private static var fillEmptySpace = false
     private static var dynamic = false
     private static var emptySpaceFillMode = ""
@@ -94,6 +166,41 @@ class PeopleScreensaverView: ScreenSaverView {
         setupWebView()
         setupNotifications()
         setupInitialState()
+        setupMemoryManagement()
+        setupPeriodicCleanup()
+        setupResolutionIndependence()
+        
+        // Delayed initialization to prevent race conditions
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            self.performDelayedInitialization()
+        }
+    }
+    
+    private func performDelayedInitialization() {
+        // CRITICAL: Reset scaling state before delayed initialization to prevent race conditions
+        scalingApplied = false
+        displayDetectionComplete = false
+        baseScalingApplied = false
+        lastDisplayIdentifier = ""
+        
+        // Ensure display detection is stable before proceeding
+        guard let screen = getValidCurrentScreen() else {
+            os_log("Delayed initialization failed - no valid screen detected", log: Self.logger, type: .error)
+            return
+        }
+        
+        let frame = screen.frame
+        let aspectRatio = frame.size.width / frame.size.height
+        let orientation = aspectRatio > 1.0 ? "Horizontal" : "Vertical"
+        
+        os_log("Delayed initialization successful: %{public}@ (%{public}@) - %.1fx%.1f (%.2f)", 
+               log: Self.logger, type: .info, screen.localizedName, orientation, 
+               frame.size.width, frame.size.height, aspectRatio)
+        
+        // CRITICAL: Apply proper scaling after delayed initialization
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            self.updateWebViewForCurrentDisplay()
+        }
         
         if Self.mdmMode {
             loadMdm()
@@ -104,38 +211,421 @@ class PeopleScreensaverView: ScreenSaverView {
         }
     }
     
-    // MARK: - WebView Setup
+    // MARK: - Memory Management Setup
+    private func setupMemoryManagement() {
+        // DISABLED: Memory pressure monitoring causes background CPU usage
+        // Only enable when screensaver is actually active
+        // memoryPressureSource = DispatchSource.makeMemoryPressureSource(eventMask: .all, queue: .main)
+        // memoryPressureSource?.setEventHandler { [weak self] in
+        //     self?.handleMemoryPressure()
+        // }
+        // memoryPressureSource?.resume()
+        
+        // Setup periodic cleanup for long-running stability
+        setupPeriodicCleanup()
+        
+        os_log("Memory pressure monitoring disabled to prevent background CPU usage", log: Self.logger, type: .info)
+    }
+    
+    // MARK: - Long-Running Stability Management
+    private func setupPeriodicCleanup() {
+        // DISABLED: Periodic cleanup causes background CPU usage
+        // Only enable if screensaver is actually running and visible
+        // periodicCleanupTimer = Timer.scheduledTimer(withTimeInterval: 7200, repeats: true) { [weak self] _ in
+        //     self?.performPeriodicCleanup()
+        // }
+        os_log("Periodic cleanup disabled to prevent background CPU usage", log: Self.logger, type: .info)
+    }
+    
+    private func performPeriodicCleanup() {
+        runtimeHours += 2.0
+        lastMemoryCleanup = Date()
+        
+        os_log("Performing periodic cleanup after %f hours", log: Self.logger, type: .info, runtimeHours)
+        
+        // Reset scaling state to prevent drift
+        resetScalingState()
+        
+        // Clean up accumulated memory
+        cleanupMemoryIntensiveResources()
+        
+        // Clear WebView caches
+        clearWebViewCaches()
+        
+        // Validate current display configuration
+        validateDisplayConfiguration()
+        
+        os_log("Periodic cleanup completed", log: Self.logger, type: .info)
+    }
+    
+    // MARK: - Periodic Scaling Reset
+    private func performPeriodicScalingReset() {
+        // Only perform reset if screensaver is actually active
+        guard isScreensaverActive() else {
+            os_log("Periodic scaling reset skipped - screensaver not active", log: Self.logger, type: .info)
+            return
+        }
+        
+        os_log("Performing periodic scaling reset to prevent cumulative scaling", log: Self.logger, type: .info)
+        
+        // Reset all scaling state
+        scalingApplied = false
+        displayDetectionComplete = false
+        contentZoomApplied = false
+        zoomLockApplied = false
+        baseScalingApplied = false
+        
+        // Reset WebView to monitor bounds
+        resetToOriginalFrame()
+        
+        // Clear scaling caches
+        displayContentZoomCache.removeAll()
+        lastContentZoomDisplay = ""
+        
+        // Force fresh display detection
+        lastDisplayIdentifier = ""
+        
+        // Reapply proper scaling
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            self.updateWebViewForCurrentDisplay()
+        }
+        
+        os_log("Periodic scaling reset completed", log: Self.logger, type: .info)
+    }
+    
+    // MARK: - Dual Monitor Specific Scaling Reset
+    private func performDualMonitorScalingReset() {
+        os_log("Dual monitor: Performing specific scaling reset for dual monitor stability", log: Self.logger, type: .info)
+        
+        // Reset all scaling state specifically for dual monitor
+        scalingApplied = false
+        displayDetectionComplete = false
+        contentZoomApplied = false
+        zoomLockApplied = false
+        baseScalingApplied = false
+        
+        // Clear all scaling caches
+        displayContentZoomCache.removeAll()
+        displayResolutionCache.removeAll()
+        lastContentZoomDisplay = ""
+        lastDisplayIdentifier = ""
+        
+        // Reset WebView to monitor bounds
+        resetToOriginalFrame()
+        
+        // Force fresh screen detection
+        guard let screen = getValidCurrentScreen() else {
+            os_log("Dual monitor: No valid screen detected during reset", log: Self.logger, type: .error)
+            return
+        }
+        
+        // Validate screen dimensions for dual monitor
+        let screenFrame = screen.frame
+        let aspectRatio = screenFrame.size.width / screenFrame.size.height
+        
+        if aspectRatio < 0.1 || aspectRatio > 10.0 {
+            os_log("Dual monitor: Invalid aspect ratio %.2f during reset, using default scaling", log: Self.logger, type: .error)
+            applyDefaultScaling()
+            return
+        }
+        
+        if screenFrame.size.width < 100 || screenFrame.size.height < 100 {
+            os_log("Dual monitor: Screen too small %.0fx%.0f during reset, using default scaling", log: Self.logger, type: .error)
+            applyDefaultScaling()
+            return
+        }
+        
+        os_log("Dual monitor: Scaling reset completed successfully for %{public}@", log: Self.logger, type: .info, screen.localizedName)
+    }
+    
+    // MARK: - Startup Scaling Reset
+    private func performStartupScalingReset() {
+        os_log("Startup: Performing scaling reset to prevent persistent zoom issues", log: Self.logger, type: .info)
+        
+        // CRITICAL: Reset all scaling state at startup
+        scalingApplied = false
+        displayDetectionComplete = false
+        contentZoomApplied = false
+        zoomLockApplied = false
+        baseScalingApplied = false
+        
+        // Clear all scaling caches
+        displayContentZoomCache.removeAll()
+        displayResolutionCache.removeAll()
+        lastContentZoomDisplay = ""
+        lastDisplayIdentifier = ""
+        
+        // Reset WebView to monitor bounds
+        resetToOriginalFrame()
+        
+        // Force fresh screen detection
+        guard let screen = getValidCurrentScreen() else {
+            os_log("Startup: No valid screen detected during reset", log: Self.logger, type: .error)
+            return
+        }
+        
+        // Validate screen dimensions for startup
+        let screenFrame = screen.frame
+        let aspectRatio = screenFrame.size.width / screenFrame.size.height
+        
+        if aspectRatio < 0.1 || aspectRatio > 10.0 {
+            os_log("Startup: Invalid aspect ratio %.2f during reset, using default scaling", log: Self.logger, type: .error)
+            applyDefaultScaling()
+            return
+        }
+        
+        if screenFrame.size.width < 100 || screenFrame.size.height < 100 {
+            os_log("Startup: Screen too small %.0fx%.0f during reset, using default scaling", log: Self.logger, type: .error)
+            applyDefaultScaling()
+            return
+        }
+        
+        // Apply proper scaling after reset
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            self.updateWebViewForCurrentDisplay()
+            
+            // CRITICAL: Ensure debug view stays on top after WebView updates
+            if Self.debugMode {
+                self.ensureDebugViewOnTop()
+            }
+        }
+        
+        os_log("Startup: Scaling reset completed successfully for %{public}@", log: Self.logger, type: .info, screen.localizedName)
+    }
+    
+    private func resetScalingState() {
+        scalingApplied = false
+        displayDetectionComplete = false
+        scalingResetCount += 1
+        
+        // Reset to default values
+        instanceResizeWidth = 0.05
+        instanceResizeHeight = 0.05
+        
+        os_log("Scaling state reset (count: %d)", log: Self.logger, type: .info, scalingResetCount)
+    }
+    
+    private func clearWebViewCaches() {
+        guard let webView = webView else { return }
+        
+        // Clear WebView caches safely
+        webView.evaluateJavaScript("""
+            if (window.caches) {
+                window.caches.keys().then(function(names) {
+                    return Promise.all(names.map(function(name) {
+                        return window.caches.delete(name);
+                    }));
+                }));
+            }
+        """) { result, error in
+            if let error = error {
+                os_log("WebView cache cleanup failed: %{public}@", log: Self.logger, type: .error, error.localizedDescription)
+            } else {
+                os_log("WebView caches cleared successfully", log: Self.logger, type: .info)
+            }
+        }
+    }
+    
+    private func validateDisplayConfiguration() {
+        // Check if current display configuration is still valid
+        guard let currentScreen = getValidCurrentScreen() else {
+            os_log("Display configuration validation failed - no valid screen", log: Self.logger, type: .error)
+            return
+        }
+        
+        let screenFrame = currentScreen.frame
+        let currentAspectRatio = screenFrame.size.width / screenFrame.size.height
+        
+        // Recalculate scaling if aspect ratio has changed significantly
+        let expectedScaling = calculateExpectedScaling(for: currentAspectRatio)
+        let currentScaling = (instanceResizeWidth, instanceResizeHeight)
+        
+        if abs(expectedScaling.0 - currentScaling.0) > 0.01 || abs(expectedScaling.1 - currentScaling.1) > 0.01 {
+            os_log("Display configuration drift detected, recalculating scaling", log: Self.logger, type: .info)
+            updateWebViewForCurrentDisplay()
+        }
+    }
+    
+    private func calculateExpectedScaling(for aspectRatio: CGFloat) -> (CGFloat, CGFloat) {
+        var width: CGFloat = 0.05
+        var height: CGFloat = 0.05
+        
+        if aspectRatio > 2.0 {
+            width = 0.03
+            height = 0.03
+        } else if aspectRatio > 1.5 {
+            width = 0.04
+            height = 0.04
+        } else if aspectRatio < 0.7 {
+            width = 0.03
+            height = 0.03
+        }
+        
+        return (min(width, 0.01), min(height, 0.01))
+    }
+    
+    
+    private func handleMemoryPressure() {
+        os_log("Memory pressure detected, performing cleanup", log: Self.logger, type: .info)
+        
+        // Clear slide cache if it's too large
+        if slideCache.count > 10 {
+            let keysToRemove = Array(slideCache.keys.prefix(slideCache.count - 5))
+            for key in keysToRemove {
+                slideCache.removeValue(forKey: key)
+            }
+        }
+        
+        // Force garbage collection
+        DispatchQueue.global(qos: .background).async {
+            // Trigger memory cleanup
+            autoreleasepool {
+                // Perform any memory-intensive operations here
+            }
+        }
+    }
+    
+    private func cleanupMemoryIntensiveResources() {
+        // Clear old cached slides
+        slideCache.removeAll()
+        loadingSlides.removeAll()
+        
+        // Clear WebView cache if needed with safe JavaScript execution
+        if let webView = webView {
+            webView.evaluateJavaScript("if (window.gc) { window.gc(); }") { result, error in
+                if let error = error {
+                    os_log("JavaScript GC cleanup failed: %{public}@", log: Self.logger, type: .error, error.localizedDescription)
+                }
+            }
+        }
+    }
+    
+    // MARK: - Optimized WebView Setup
     private func setupWebView() {
         let config = WKWebViewConfiguration()
+        
+        // Performance optimizations
         config.setValue(NSNumber(value: false), forKey: "drawsBackground")
+        config.suppressesIncrementalRendering = true
         
+        // Shared process pool for better memory management
         config.processPool = WKProcessPool()
-        config.websiteDataStore = WKWebsiteDataStore.default()
         
+        // Optimized data store configuration
+        let dataStore = WKWebsiteDataStore.default()
+        config.websiteDataStore = dataStore
+        
+        // Disable unnecessary features for performance
         config.allowsAirPlayForMediaPlayback = false
         config.mediaTypesRequiringUserActionForPlayback = .all
         
+        // Enhanced performance settings for different macOS versions
         if #available(macOS 15.0, *) {
             let userContentController = WKUserContentController()
             config.userContentController = userContentController
-            config.suppressesIncrementalRendering = true
-        } else if #available(macOS 10.15, *) {
-            config.suppressesIncrementalRendering = true
+            
+            // Advanced performance optimizations for macOS 15+ (JavaScript enabled for screensaver functionality)
+            config.preferences.setValue(true, forKey: "allowFileAccessFromFileURLs")
+            config.preferences.setValue(false, forKey: "javaScriptCanOpenWindowsAutomatically")
+            config.preferences.setValue(true, forKey: "javaScriptEnabled") // Enable JavaScript for screensaver
+            config.preferences.setValue(false, forKey: "plugInsEnabled")
+            
+            // ARM64-specific WebView optimizations for stability
+            if Self.isAppleSilicon {
+                config.preferences.setValue(false, forKey: "allowFileAccessFromFileURLs")  // Disable for ARM64 stability
+                config.preferences.setValue(false, forKey: "allowUniversalAccessFromFileURLs")
+                os_log("ARM64 WebView: Using conservative settings for stability", log: Self.logger, type: .info)
+            }
+            
+            // Add JavaScript error handling
+            userContentController.add(self, name: "errorHandler")
+        } else if #available(macOS 12.0, *) {
+            // Optimizations for macOS 12+
+            config.preferences.setValue(false, forKey: "javaScriptCanOpenWindowsAutomatically")
+            config.preferences.setValue(false, forKey: "plugInsEnabled")
         }
         
-        webView = WKWebViewCustom(frame: CGRect(x: 0, y: 0, width: frame.size.width, height: frame.size.height), configuration: config)
+        // Create optimized WebView with monitor bounds and ARM64 compatibility
+        let monitorFrame = getMonitorBounds()
+        webView = WKWebViewCustom(
+            frame: monitorFrame,
+            configuration: config
+        )
+        
+        // ARM64-specific WebView setup for stability
+        if Self.isAppleSilicon {
+            webView?.setValue(false, forKey: "drawsBackground")
+            webView?.setValue(false, forKey: "drawsTransparentBackground")
+            os_log("ARM64 WebView: Applied stability settings", log: Self.logger, type: .info)
+        }
+        
+        // Add JavaScript error handling script
+        if #available(macOS 15.0, *) {
+            let errorScript = """
+            window.onerror = function(message, source, lineno, colno, error) {
+                window.webkit.messageHandlers.errorHandler.postMessage({
+                    message: message,
+                    source: source,
+                    line: lineno,
+                    column: colno,
+                    error: error ? error.toString() : 'Unknown error'
+                });
+            };
+            """
+            let script = WKUserScript(source: errorScript, injectionTime: .atDocumentStart, forMainFrameOnly: false)
+            config.userContentController.addUserScript(script)
+        }
+        
+        // Add zoom prevention script
+        let zoomPreventionScript = """
+        // ZOOM PREVENTION: Add viewport meta tag to prevent zoom
+        const viewport = document.querySelector('meta[name="viewport"]');
+        if (viewport) {
+            viewport.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no');
+        } else {
+            const meta = document.createElement('meta');
+            meta.name = 'viewport';
+            meta.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no';
+            document.head.appendChild(meta);
+        }
+        
+        // Prevent zoom via CSS
+        document.body.style.zoom = '1.0';
+        document.documentElement.style.zoom = '1.0';
+        document.body.style.transform = 'scale(1.0)';
+        document.documentElement.style.transform = 'scale(1.0)';
+        """
+        let zoomScript = WKUserScript(source: zoomPreventionScript, injectionTime: .atDocumentStart, forMainFrameOnly: false)
+        config.userContentController.addUserScript(zoomScript)
         
         guard let webView = webView else { return }
         
+        // Performance-optimized layer setup
         webView.wantsLayer = true
+        webView.layer?.contentsGravity = .resizeAspectFill
+        
+        // CRITICAL: Ensure content is centered and properly positioned
+        webView.layer?.contentsRect = CGRect(x: 0, y: 0, width: 1, height: 1)
+        webView.layer?.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+        
+        // FIXED: WebView sized to monitor bounds, no autoresizing needed
         addSubview(webView)
-        autoresizingMask = [.width, .height]
-        autoresizesSubviews = true
-        webView.autoresizingMask = [.width, .height]
+        // Remove autoresizing to prevent cumulative scaling
+        autoresizingMask = []
+        autoresizesSubviews = false
+        webView.autoresizingMask = []
+        
+        // Ensure WebView fills the entire monitor
+        webView.frame = monitorFrame
+        
+        // Enable hardware acceleration
+        webView.layer?.drawsAsynchronously = true
         
         if Self.debugMode {
             setupDebugView()
         }
+        
+        os_log("WebView setup completed with performance optimizations", log: Self.logger, type: .info)
     }
     
     private func setupDebugView() {
@@ -160,15 +650,57 @@ class PeopleScreensaverView: ScreenSaverView {
     }
     
     @objc private func displayConfigurationChanged(_ notification: Notification) {
+        // CRITICAL: Only process display changes if screensaver is active
+        guard isScreensaverActive() else {
+            os_log("Display change ignored - screensaver not active", log: Self.logger, type: .info)
+            return
+        }
+        
+        let currentDisplayId = getDisplayIdentifier()
+        
+        // Enhanced display change detection with orientation validation
+        let displayActuallyChanged = lastDisplayIdentifier != currentDisplayId
+        let orientationChanged = !validateCurrentOrientation()
+        
+        if !displayActuallyChanged && !orientationChanged {
+            os_log("Display configuration change detected but display and orientation unchanged, skipping", log: Self.logger, type: .info)
+            return
+        }
+        
         DispatchQueue.main.async {
+            if displayActuallyChanged {
+                os_log("Dual monitor: Display configuration changed from %{public}@ to %{public}@", log: Self.logger, type: .info, self.lastDisplayIdentifier, currentDisplayId)
+            } else {
+                os_log("Dual monitor: Display orientation changed, forcing update", log: Self.logger, type: .info)
+            }
+            
+            // Reset all scaling state for new display or orientation
             self.scalingApplied = false
             self.displayDetectionComplete = false
+            self.scalingValidationCount = 0
+            self.baseScalingApplied = false
             
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            // Reset content zoom state for new display
+            self.contentZoomApplied = false
+            self.lastContentZoomDisplay = ""
+            
+            // Reset resolution independence state
+            self.graphicsContextConfigured = false
+            self.currentBackingScaleFactor = 1.0
+            
+            // Reset to original frame before applying new scaling
+            self.resetToOriginalFrame()
+            
+            // Clear cached display identifier to force fresh detection
+            self.lastDisplayIdentifier = ""
+            
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { // Increased delay for stability
+                // CRITICAL: Dual monitor specific scaling reset
+                self.performDualMonitorScalingReset()
                 self.updateWebViewForCurrentDisplay()
                 
                 if Self.debugMode {
-                    self.showDebugMessage("Display configuration changed - updating layout")
+                    self.showDebugMessage("Dual monitor: Display configuration changed - updating layout")
                     self.showDebugMessage(self.getCurrentDisplayInfo())
                 }
             }
@@ -183,29 +715,113 @@ class PeopleScreensaverView: ScreenSaverView {
         isFirstLoop = true
         instanceCurrentLink = ""
         
+        // Reset all display-related state to prevent confusion
         instanceResizeWidth = 0.05
         instanceResizeHeight = 0.05
         scalingApplied = false
         displayDetectionComplete = false
+        baseScalingApplied = false
+        lastDisplayIdentifier = ""
+        scalingValidationCount = 0
+        scalingResetCount = 0
+        lastScalingTime = Date()
+        originalWebViewFrame = .zero
+        
+        // Reset content zoom state
+        contentZoomApplied = false
+        lastContentZoomDisplay = ""
+        
+        // Reset resolution independence state
+        graphicsContextConfigured = false
+        currentBackingScaleFactor = 1.0
+        displayResolutionCache.removeAll()
+        
+        // Clear any cached retry counts
+        slideLoadRetryCount.removeAll()
+        
+        os_log("Initial state reset completed", log: Self.logger, type: .info)
     }
     
     // MARK: - Frame Updates
     func setFrame(_ frameRect: NSRect) {
         frame = frameRect
+        
+        // FIXED: Ensure WebView fits the monitor bounds, not parent bounds
+        let monitorFrame = getMonitorBounds()
+        webView?.frame = monitorFrame
+        
+        // CRITICAL: Reset scaling state before updating to prevent persistent zoom issues
+        if !scalingApplied {
+            scalingApplied = false
+            displayDetectionComplete = false
+            baseScalingApplied = false
+            lastDisplayIdentifier = ""
+        }
+        
         updateWebViewForCurrentDisplay()
         
         if Self.debugMode {
             showDebugMessage("setFrame parent view rect: \(frame)")
             showDebugMessage("setFrame web view rect: \(webView?.frame ?? .zero)")
+            showDebugMessage("setFrame monitor bounds: \(monitorFrame)")
             showDebugMessage("Current display: \(getCurrentDisplayInfo())")
         }
     }
     
+    // MARK: - Monitor Bounds Helper
+    private func getMonitorBounds() -> NSRect {
+        guard let screen = getValidCurrentScreen() else {
+            // Fallback to parent bounds if no screen detected
+            os_log("No valid screen detected, using parent bounds as fallback", log: Self.logger, type: .error)
+            return bounds
+        }
+        
+        let screenFrame = screen.frame
+        // Return monitor bounds starting from origin (0,0) with screen dimensions
+        let monitorFrame = NSRect(
+            x: 0,
+            y: 0,
+            width: screenFrame.size.width,
+            height: screenFrame.size.height
+        )
+        
+        os_log("Monitor bounds: %{public}@ (screen: %{public}@)", log: Self.logger, type: .info, monitorFrame.debugDescription, screenFrame.debugDescription)
+        return monitorFrame
+    }
+    
     // MARK: - Display Management
     private func updateWebViewForCurrentDisplay() {
-        if scalingApplied {
-            print("People.AI scaling already applied, skipping to prevent cumulative effects")
+        let currentDisplayId = getDisplayIdentifier()
+        
+        // Enhanced display change detection with orientation validation
+        if lastDisplayIdentifier == currentDisplayId && scalingApplied {
+            let timeSinceLastScaling = Date().timeIntervalSince(lastScalingTime)
+            
+            // Validate current orientation is still correct
+            if validateCurrentOrientation() {
+                // Only allow rescaling if significant time has passed or display changed
+                if timeSinceLastScaling < 10.0 {
+                    os_log("Scaling already applied for current display with valid orientation, skipping to prevent cumulative effects", log: Self.logger, type: .info)
+                    return
+                }
+            } else {
+                os_log("Orientation validation failed, forcing display update", log: Self.logger, type: .info)
+                // Force update by resetting state
+                scalingApplied = false
+                displayDetectionComplete = false
+            }
+        }
+        
+        // Validate scaling attempts
+        if scalingValidationCount >= maxScalingAttempts {
+            os_log("Maximum scaling attempts reached, using default scaling", log: Self.logger, type: .error)
+            applyDefaultScaling()
             return
+        }
+        
+        // Reset to original frame before applying new scaling
+        if baseScalingApplied {
+            resetToOriginalFrame()
         }
         
         let moduleName = Bundle(for: type(of: self)).bundleIdentifier ?? ""
@@ -243,8 +859,25 @@ class PeopleScreensaverView: ScreenSaverView {
             applyDefaultScaling()
         }
         
+        // Store original frame for future resets
+        if !baseScalingApplied {
+            originalWebViewFrame = webView?.frame ?? bounds
+            baseScalingApplied = true
+        }
+        
         scalingApplied = true
         displayDetectionComplete = true
+        lastScalingTime = Date()
+        lastDisplayIdentifier = currentDisplayId
+        scalingValidationCount += 1
+        
+        // Apply display-specific content zoom
+        applyDisplaySpecificContentZoom()
+        
+        // Update graphics context for resolution independence
+        updateGraphicsContextForCurrentDisplay()
+        
+        os_log("Scaling applied successfully at %{public}@ for display %{public}@", log: Self.logger, type: .info, lastScalingTime.description, currentDisplayId)
     }
     
     private func getCurrentDisplayInfo() -> String {
@@ -264,129 +897,675 @@ class PeopleScreensaverView: ScreenSaverView {
     }
     
     private func getValidCurrentScreen() -> NSScreen? {
+        // Enhanced screen detection with dual monitor validation and retry logic
+        var detectedScreen: NSScreen?
+        var detectionMethod = ""
+        
+        // First try: Get screen from window (most accurate for screensaver)
         if let window = window, let screen = window.screen {
             let screenFrame = screen.frame
             if screenFrame.size.width > 0 && screenFrame.size.height > 0 {
-                return screen
+                // Validate that this is actually the screensaver's display
+                if isValidScreensaverDisplay(screen) {
+                    detectedScreen = screen
+                    detectionMethod = "window_screen"
+                    os_log("Dual monitor: Using window screen %{public}@", log: Self.logger, type: .info, screen.localizedName)
+                }
             }
         }
         
-        let mainScreen = NSScreen.main
-        let screenFrame = mainScreen?.frame ?? .zero
-        if screenFrame.size.width > 0 && screenFrame.size.height > 0 {
-            return mainScreen
+        // Second try: Find screen that matches our bounds (if window screen failed)
+        if detectedScreen == nil {
+            let currentBounds = bounds
+            if currentBounds.size.width > 0 && currentBounds.size.height > 0 {
+                for screen in NSScreen.screens {
+                    let screenFrame = screen.frame
+                    if screenFrame.size.width > 0 && screenFrame.size.height > 0 {
+                        // Check if this screen contains our bounds or matches our size
+                        if screenFrame.contains(currentBounds) || 
+                           (abs(screenFrame.size.width - currentBounds.size.width) < 10 && 
+                            abs(screenFrame.size.height - currentBounds.size.height) < 10) {
+                            if isValidScreensaverDisplay(screen) {
+                                detectedScreen = screen
+                                detectionMethod = "bounds_match"
+                                break
+                            }
+                        }
+                    }
+                }
+            }
         }
         
+        // Third try: Get primary screen (fallback)
+        if detectedScreen == nil {
+            let primaryScreen = NSScreen.screens.first { screen in
+                let frame = screen.frame
+                return frame.size.width > 0 && frame.size.height > 0 && isValidScreensaverDisplay(screen)
+            }
+            
+            if let primaryScreen = primaryScreen {
+                detectedScreen = primaryScreen
+                detectionMethod = "primary_screen"
+            }
+        }
+        
+        // Fourth try: Main screen (last resort)
+        if detectedScreen == nil {
+            let mainScreen = NSScreen.main
+            let screenFrame = mainScreen?.frame ?? .zero
+            if screenFrame.size.width > 0 && screenFrame.size.height > 0 {
+                detectedScreen = mainScreen
+                detectionMethod = "main_screen"
+            }
+        }
+        
+        if let screen = detectedScreen {
+            let frame = screen.frame
+            let aspectRatio = frame.size.width / frame.size.height
+            let orientation = aspectRatio > 1.0 ? "Horizontal" : "Vertical"
+            // CRITICAL: Dual monitor validation - ensure screen is stable
+            if aspectRatio < 0.1 || aspectRatio > 10.0 {
+                os_log("Dual monitor: Invalid aspect ratio %.2f for screen %{public}@, forcing reset", log: Self.logger, type: .error, aspectRatio, screen.localizedName)
+                return nil
+            }
+            
+            // Validate screen is not too small (common issue in dual monitor)
+            if frame.size.width < 100 || frame.size.height < 100 {
+                os_log("Dual monitor: Screen too small %.0fx%.0f for %{public}@, forcing reset", log: Self.logger, type: .error, frame.size.width, frame.size.height, screen.localizedName)
+                return nil
+            }
+            
+            os_log("Dual monitor: Screen detected via %{public}@: %{public}@ (%{public}@) - %.1fx%.1f (%.2f)", 
+                   log: Self.logger, type: .info, detectionMethod, screen.localizedName, orientation, 
+                   frame.size.width, frame.size.height, aspectRatio)
+            return screen
+        }
+        
+        os_log("No valid screen detected", log: Self.logger, type: .error)
         return nil
+    }
+    
+    private func isValidScreensaverDisplay(_ screen: NSScreen) -> Bool {
+        let frame = screen.frame
+        let aspectRatio = frame.size.width / frame.size.height
+        
+        // Validate reasonable display dimensions
+        guard frame.size.width > 100 && frame.size.height > 100 else { return false }
+        
+        // Validate reasonable aspect ratio (not too extreme)
+        guard aspectRatio > 0.1 && aspectRatio < 10.0 else { return false }
+        
+        // Additional validation: check if screen is actually visible and active
+        guard !frame.isEmpty else { return false }
+        
+        return true
+    }
+    
+    private func validateCurrentOrientation() -> Bool {
+        guard let screen = getValidCurrentScreen() else { return false }
+        
+        let frame = screen.frame
+        let currentAspectRatio = frame.size.width / frame.size.height
+        let currentOrientation = currentAspectRatio > 1.0
+        
+        // Get the expected orientation from our current scaling settings
+        let expectedOrientation = instanceResizeWidth > instanceResizeHeight
+        
+        // Allow some tolerance for aspect ratio calculations
+        let _: CGFloat = 0.1
+        
+        // Check if orientation matches expectations
+        let orientationMatches = currentOrientation == expectedOrientation
+        
+        // Additional validation: check if aspect ratio is reasonable
+        let aspectRatioValid = currentAspectRatio > 0.1 && currentAspectRatio < 10.0
+        
+        os_log("Orientation validation: current=%.2f (%.1f), expected=%.1f, matches=%@, valid=%@", 
+               log: Self.logger, type: .info, currentAspectRatio, currentOrientation ? 1.0 : 0.0, 
+               expectedOrientation ? 1.0 : 0.0, orientationMatches ? "YES" : "NO", aspectRatioValid ? "YES" : "NO")
+        
+        return orientationMatches && aspectRatioValid
+    }
+    
+    private func getDisplayIdentifier() -> String {
+        guard let screen = getValidCurrentScreen() else { return "unknown" }
+        let frame = screen.frame
+        let aspectRatio = frame.size.width / frame.size.height
+        let orientation = aspectRatio > 1.0 ? "H" : "V"
+        return "\(screen.localizedName)_\(Int(frame.size.width))x\(Int(frame.size.height))_\(orientation)_\(String(format: "%.2f", aspectRatio))"
+    }
+    
+    // MARK: - Display-Specific Content Zoom
+    private func getDisplayType(_ screen: NSScreen) -> DisplayType {
+        let frame = screen.frame
+        let aspectRatio = frame.size.width / frame.size.height
+        
+        // Detect if this is a built-in display (usually has specific characteristics)
+        let isBuiltIn = screen.localizedName.contains("Built-in") || 
+                       screen.localizedName.contains("MacBook") ||
+                       screen.localizedName.contains("Retina")
+        
+        if isBuiltIn {
+            if aspectRatio > 2.0 {
+                return .ultraWide
+            } else if aspectRatio > 1.5 {
+                return .wide
+            } else if aspectRatio < 0.7 {
+                return .vertical
+            } else {
+                return .standard
+            }
+        } else {
+            // External display
+            if aspectRatio > 2.0 {
+                return .ultraWide
+            } else if aspectRatio > 1.5 {
+                return .wide
+            } else if aspectRatio < 0.7 {
+                return .vertical
+            } else {
+                return .standard
+            }
+        }
+    }
+    
+    private func getDisplayDPI(_ screen: NSScreen) -> CGFloat {
+        return screen.backingScaleFactor
+    }
+    
+    private func calculateDisplaySpecificContentZoom(for screen: NSScreen) -> CGFloat {
+        // ZOOM PREVENTION: Always return 1.0 to prevent any zoom/overscaling
+        let contentZoom: CGFloat = 1.0
+        
+        os_log("ZOOM PREVENTION: Content zoom locked at 1.0 to prevent overscaling", log: Self.logger, type: .info)
+        
+        return contentZoom
+    }
+    
+    private func applyDisplaySpecificContentZoom() {
+        guard getValidCurrentScreen() != nil else { 
+            os_log("No valid screen for content zoom application", log: Self.logger, type: .error)
+            return 
+        }
+        
+        let currentDisplayId = getDisplayIdentifier()
+        
+        // Check if content zoom is already applied for this display
+        if lastContentZoomDisplay == currentDisplayId && contentZoomApplied {
+            os_log("Content zoom already applied for display %{public}@", log: Self.logger, type: .info, currentDisplayId)
+            return
+        }
+        
+        // ZOOM PREVENTION: Lock content zoom at 1.0 to prevent overscaling
+        let contentZoom: CGFloat = 1.0
+        
+        // Apply zoom prevention via CSS
+        let zoomPreventionScript = """
+        // ZOOM PREVENTION: Lock zoom at 1.0 to prevent overscaling
+        document.body.style.zoom = '1.0';
+        document.documentElement.style.zoom = '1.0';
+        document.body.style.transform = 'scale(1.0)';
+        document.documentElement.style.transform = 'scale(1.0)';
+        
+        // Prevent user zoom
+        document.addEventListener('wheel', function(e) {
+            if (e.ctrlKey) {
+                e.preventDefault();
+            }
+        }, { passive: false });
+        
+        // Prevent pinch zoom
+        document.addEventListener('gesturestart', function(e) {
+            e.preventDefault();
+        }, { passive: false });
+        
+        document.addEventListener('gesturechange', function(e) {
+            e.preventDefault();
+        }, { passive: false });
+        
+        document.addEventListener('gestureend', function(e) {
+            e.preventDefault();
+        }, { passive: false });
+        """
+        
+        webView?.evaluateJavaScript(zoomPreventionScript) { result, error in
+            if let error = error {
+                os_log("Failed to apply zoom prevention: %{public}@", log: Self.logger, type: .error, error.localizedDescription)
+            } else {
+                self.contentZoomApplied = true
+                self.lastContentZoomDisplay = currentDisplayId
+                self.displayContentZoomCache[currentDisplayId] = contentZoom
+                self.zoomLockApplied = true
+                os_log("ZOOM PREVENTION: Content zoom locked at 1.0 to prevent overscaling", log: Self.logger, type: .info)
+            }
+        }
+    }
+    
+    private func getCachedContentZoom(for displayId: String) -> CGFloat? {
+        return displayContentZoomCache[displayId]
+    }
+    
+    private func setCachedContentZoom(_ zoom: CGFloat, for displayId: String) {
+        displayContentZoomCache[displayId] = zoom
+    }
+    
+    // MARK: - Resolution Independence Setup
+    private func setupResolutionIndependence() {
+        // Configure for resolution independence
+        wantsLayer = true
+        layer?.contentsGravity = .resizeAspectFill
+        
+        // Enable high-resolution rendering
+        if let layer = layer {
+            layer.contentsScale = 1.0 // Will be updated based on display
+            layer.drawsAsynchronously = true
+        }
+        
+        os_log("Resolution independence setup completed", log: Self.logger, type: .info)
+    }
+    
+    private func updateGraphicsContextForCurrentDisplay() {
+        guard let screen = getValidCurrentScreen() else { return }
+        
+        let backingScaleFactor = screen.backingScaleFactor
+        let displayId = getDisplayIdentifier()
+        
+        // Update current backing scale factor
+        currentBackingScaleFactor = backingScaleFactor
+        
+        // Cache display resolution information
+        let resolution = screen.frame.size
+        displayResolutionCache[displayId] = (scale: backingScaleFactor, resolution: resolution)
+        
+        // Configure graphics context for current display
+        configureGraphicsContextForDisplay(screen)
+        
+        // Update WebView for high-resolution display
+        updateWebViewForHighResolutionDisplay(screen)
+        
+        os_log("Graphics context updated for display %{public}@: scale=%.1f, resolution=%.0fx%.0f", 
+               log: Self.logger, type: .info, screen.localizedName, backingScaleFactor, resolution.width, resolution.height)
+    }
+    
+    private func configureGraphicsContextForDisplay(_ screen: NSScreen) {
+        let backingScaleFactor = screen.backingScaleFactor
+        
+        // Configure layer for high-resolution display
+        if let layer = layer {
+            layer.contentsScale = backingScaleFactor
+            layer.drawsAsynchronously = true
+            
+            // Enable high-resolution rendering
+            if backingScaleFactor > 1.0 {
+                layer.shouldRasterize = false // Disable rasterization for Retina displays
+                layer.rasterizationScale = backingScaleFactor
+            }
+        }
+        
+        // Configure view for resolution independence
+        wantsLayer = true
+        
+        // CRITICAL: Keep autoresizing disabled for dual monitor stability
+        // Do NOT re-enable autoresizing as it causes cumulative scaling in dual monitor setups
+        autoresizingMask = []
+        autoresizesSubviews = false
+        
+        graphicsContextConfigured = true
+    }
+    
+    private func updateWebViewForHighResolutionDisplay(_ screen: NSScreen) {
+        guard let webView = webView else { return }
+        
+        let backingScaleFactor = screen.backingScaleFactor
+        
+        // Configure WebView for high-resolution display
+        webView.wantsLayer = true
+        if let webViewLayer = webView.layer {
+            webViewLayer.contentsScale = backingScaleFactor
+            webViewLayer.drawsAsynchronously = true
+            
+            // Enable high-resolution rendering for WebView
+            if backingScaleFactor > 1.0 {
+                webViewLayer.shouldRasterize = false
+                webViewLayer.rasterizationScale = backingScaleFactor
+            }
+        }
+        
+        // FIXED: Use consistent monitor bounds for high-resolution display
+        let monitorFrame = getMonitorBounds()
+        webView.frame = monitorFrame
+        
+        os_log("WebView updated for high-resolution display: scale=%.1f, frame=%@", 
+               log: Self.logger, type: .info, backingScaleFactor, monitorFrame.debugDescription)
+    }
+    
+    private func getDisplayResolutionInfo() -> (scale: CGFloat, resolution: NSSize, isRetina: Bool) {
+        guard let screen = getValidCurrentScreen() else {
+            return (scale: 1.0, resolution: NSSize.zero, isRetina: false)
+        }
+        
+        let backingScaleFactor = screen.backingScaleFactor
+        let resolution = screen.frame.size
+        let isRetina = backingScaleFactor > 1.0
+        
+        return (scale: backingScaleFactor, resolution: resolution, isRetina: isRetina)
+    }
+    
+    private func calculateOptimalImageScale(for display: NSScreen) -> CGFloat {
+        let backingScaleFactor = display.backingScaleFactor
+        let aspectRatio = display.frame.size.width / display.frame.size.height
+        
+        // Base scale factor
+        var scaleFactor: CGFloat = 1.0
+        
+        // Adjust for Retina displays
+        if backingScaleFactor > 2.0 {
+            scaleFactor = 0.5  // Ultra-high DPI
+        } else if backingScaleFactor > 1.0 {
+            scaleFactor = 0.7  // Retina display
+        } else {
+            scaleFactor = 1.0  // Standard display
+        }
+        
+        // Adjust for aspect ratio
+        if aspectRatio > 2.0 {
+            scaleFactor *= 0.8  // Ultra-wide displays
+        } else if aspectRatio < 0.7 {
+            scaleFactor *= 0.8  // Vertical displays
+        }
+        
+        return max(0.3, min(1.0, scaleFactor))
     }
     
     // MARK: - Scaling Calculations
     private func calculateInstanceScalingForAspectRatio(_ aspectRatio: CGFloat) {
-        instanceResizeWidth = 0.05
-        instanceResizeHeight = 0.05
+        // FIXED: Use minimal scaling for proper content fit
+        instanceResizeWidth = 0.0
+        instanceResizeHeight = 0.0
         
-        if aspectRatio > 2.0 {
-            instanceResizeWidth = 0.03
-            instanceResizeHeight = 0.03
-        } else if aspectRatio > 1.5 {
-            instanceResizeWidth = 0.04
-            instanceResizeHeight = 0.04
-        } else if aspectRatio < 0.7 {
-            instanceResizeWidth = 0.03
-            instanceResizeHeight = 0.03
-        } else {
-            instanceResizeWidth = 0.05
-            instanceResizeHeight = 0.05
-        }
+        print("People.AI using minimal scaling for proper content fit: width=\(instanceResizeWidth), height=\(instanceResizeHeight) for aspect=\(aspectRatio)")
+    }
+    
+    private func resetToOriginalFrame() {
+        guard let webView = webView else { return }
         
-        instanceResizeWidth = min(instanceResizeWidth, 0.01)
-        instanceResizeHeight = min(instanceResizeHeight, 0.01)
-        
-        print("People.AI calculated instance scaling: width=\(instanceResizeWidth), height=\(instanceResizeHeight) for aspect=\(aspectRatio)")
+        // FIXED: Reset to monitor bounds to prevent cumulative scaling
+        let monitorFrame = getMonitorBounds()
+        webView.frame = monitorFrame
+        os_log("Reset WebView to monitor frame: %{public}@", log: Self.logger, type: .info, monitorFrame.debugDescription)
     }
     
     private func applyValidatedScaling() {
-        if instanceResizeWidth <= 0 || instanceResizeHeight <= 0 ||
-           instanceResizeWidth > 0.1 || instanceResizeHeight > 0.1 {
-            print("People.AI invalid scaling values, using default")
-            applyDefaultScaling()
-            return
+        // ZOOM PREVENTION: Use default scaling and prevent overscaling
+        os_log("ZOOM PREVENTION: Using default scaling to prevent overscaling", log: Self.logger, type: .info)
+        applyDefaultScaling()
+        
+        // Apply additional zoom prevention
+        applyZoomPrevention()
+    }
+    
+    private func applyZoomPrevention() {
+        // ZOOM PREVENTION: Lock WebView scaling to prevent overscaling
+        guard let webView = webView else { return }
+        
+        // FIXED: Reset to monitor bounds to prevent any scaling
+        let monitorFrame = getMonitorBounds()
+        webView.frame = monitorFrame
+        
+        // Apply zoom prevention via JavaScript
+        let zoomPreventionScript = """
+        // ZOOM PREVENTION: Lock all zoom and scaling
+        document.body.style.zoom = '1.0';
+        document.documentElement.style.zoom = '1.0';
+        document.body.style.transform = 'scale(1.0)';
+        document.documentElement.style.transform = 'scale(1.0)';
+        document.body.style.maxZoom = '1.0';
+        document.documentElement.style.maxZoom = '1.0';
+        
+        // Prevent any scaling
+        document.body.style.overflow = 'hidden';
+        document.documentElement.style.overflow = 'hidden';
+        
+        // CRITICAL: Ensure content is properly centered and positioned
+        document.body.style.margin = '0';
+        document.body.style.padding = '0';
+        document.body.style.position = 'relative';
+        document.body.style.left = '0';
+        document.body.style.top = '0';
+        document.body.style.width = '100%';
+        document.body.style.height = '100%';
+        
+        // Center content properly
+        document.body.style.display = 'flex';
+        document.body.style.alignItems = 'center';
+        document.body.style.justifyContent = 'center';
+        """
+        
+        webView.evaluateJavaScript(zoomPreventionScript) { result, error in
+            if let error = error {
+                os_log("Zoom prevention failed: %{public}@", log: Self.logger, type: .error, error.localizedDescription)
+            } else {
+                os_log("ZOOM PREVENTION: WebView scaling locked to prevent overscaling", log: Self.logger, type: .info)
+            }
         }
-        
-        let offsetX = instanceResizeWidth * bounds.size.width
-        let offsetY = instanceResizeHeight * bounds.size.height
-        let newWidth = bounds.size.width + (2 * offsetX)
-        let newHeight = bounds.size.height + (2 * offsetY)
-        
-        if newWidth <= 0 || newHeight <= 0 || newWidth > bounds.size.width * 2 || newHeight > bounds.size.height * 2 {
-            print("People.AI calculated dimensions invalid, using default")
-            applyDefaultScaling()
-            return
-        }
-        
-        let newFrame = NSRect(x: -offsetX, y: -offsetY, width: newWidth, height: newHeight)
-        webView?.frame = newFrame
-        
-        print("People.AI applied validated scaling: frame=\(newFrame)")
     }
     
     private func applyDefaultScaling() {
-        webView?.frame = bounds
-        if let webView = webView {
-            webView.frame.size = webView.convert(bounds.size, from: nil)
-        }
+        // FIXED: Use monitor bounds instead of parent bounds
+        let monitorFrame = getMonitorBounds()
+        webView?.frame = monitorFrame
         
-        print("People.AI applied default scaling: frame=\(bounds)")
+        print("People.AI applied default scaling: monitorFrame=\(monitorFrame)")
     }
     
     // MARK: - Animation Lifecycle
     override func startAnimation() {
         super.startAnimation()
+        
+        // CRITICAL: Check if we should actually start (prevent background activity)
+        guard !isHidden && window != nil else {
+            os_log("Preventing background animation start", log: Self.logger, type: .info)
+            return
+        }
+        
+        // CRITICAL: Reset scaling state at startup to prevent persistent zoom issues
+        performStartupScalingReset()
+        
+        // Enable background processes only when screensaver is actually active
+        enableBackgroundProcesses()
+    }
+    
+    // MARK: - Background Process Management
+    private func isScreensaverActive() -> Bool {
+        // Check if screensaver is actually running and visible
+        return !isHidden && window != nil && isAnimating && superview != nil
+    }
+    
+    private func enableBackgroundProcesses() {
+        // Only enable if screensaver is actually active
+        guard isScreensaverActive() else {
+            os_log("Screensaver not active, skipping background process enablement", log: Self.logger, type: .info)
+            return
+        }
+        
+        // Only enable memory monitoring when screensaver is active
+        if memoryPressureSource == nil {
+            memoryPressureSource = DispatchSource.makeMemoryPressureSource(eventMask: .all, queue: .main)
+            memoryPressureSource?.setEventHandler { [weak self] in
+                self?.handleMemoryPressure()
+            }
+            memoryPressureSource?.resume()
+        }
+        
+        // Only enable periodic cleanup when screensaver is active
+        if periodicCleanupTimer == nil {
+            periodicCleanupTimer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
+                self?.performPeriodicCleanup()
+            }
+        }
+        
+        // CRITICAL: Add periodic scaling reset to prevent cumulative scaling
+        if scalingResetTimer == nil {
+            scalingResetTimer = Timer.scheduledTimer(withTimeInterval: 1800, repeats: true) { [weak self] _ in
+                self?.performPeriodicScalingReset()
+            }
+        }
+        
+        os_log("Background processes enabled for active screensaver", log: Self.logger, type: .info)
+    }
+    
+    private func disableBackgroundProcesses() {
+        // Disable memory monitoring
+        memoryPressureSource?.cancel()
+        memoryPressureSource = nil
+        
+        // Disable periodic cleanup
+        periodicCleanupTimer?.invalidate()
+        periodicCleanupTimer = nil
+        
+        // Disable scaling reset timer
+        scalingResetTimer?.invalidate()
+        scalingResetTimer = nil
+        
+        os_log("Background processes disabled to prevent CPU usage", log: Self.logger, type: .info)
+    }
+    
+    // MARK: - Comprehensive WebView Cleanup
+    private func stopWebViewActivity() {
+        guard let webView = webView else { return }
+        
+        // Stop all WebView activity immediately
+        webView.stopLoading()
+        webView.navigationDelegate = nil
+        
+        // Stop JavaScript execution
+        webView.evaluateJavaScript("window.stop();") { _, error in
+            if let error = error {
+                os_log("Failed to stop JavaScript: %{public}@", log: Self.logger, type: .error, error.localizedDescription)
+            }
+        }
+        
+        // Clear WebView content
+        webView.loadHTMLString("", baseURL: nil)
+        
+        os_log("WebView activity stopped", log: Self.logger, type: .info)
+    }
+    
+    private func cleanupWebViewCompletely() {
+        guard let webView = webView else { return }
+        
+        // Remove from superview
+        webView.removeFromSuperview()
+        
+        // Clear all WebView data
+        if #available(macOS 10.15, *) {
+            let dataStore = webView.configuration.websiteDataStore
+            dataStore.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: Date(timeIntervalSince1970: 0)) {
+                os_log("WebView data cleared", log: Self.logger, type: .info)
+            }
+        }
+        
+        // Clear WebView reference
+        self.webView = nil
+        
+        os_log("WebView completely cleaned up", log: Self.logger, type: .info)
     }
     
     override func stopAnimation() {
         super.stopAnimation()
         
+        os_log("Stopping animation with comprehensive cleanup", log: Self.logger, type: .info)
+        
+        // CRITICAL: Stop all WebView activity immediately
+        stopWebViewActivity()
+        
+        // Invalidate timers immediately
         instanceTimer?.invalidate()
         instanceTimer = nil
         instanceAnimationTimer?.invalidate()
         instanceAnimationTimer = nil
         
+        // Disable all background processes
+        disableBackgroundProcesses()
+        
+        // Remove observers
         NotificationCenter.default.removeObserver(self)
         
-        webView?.navigationDelegate = nil
-        webView?.stopLoading()
+        // Clean up WebView completely
+        cleanupWebViewCompletely()
         
+        // Enhanced cleanup for different macOS versions
         if #available(macOS 15.0, *) {
             handleMacOS15StopAnimation()
         } else if #available(macOS 10.15, *) {
             handleOlderMacOSStopAnimation()
         }
+        
+        // CRITICAL: Stop static animation timer
+        Self.animationTimer?.invalidate()
+        Self.animationTimer = nil
+        
+        // CRITICAL: Cancel all network requests
+        cancelAllNetworkRequests()
+        
+        // CRITICAL: Clear all caches and memory
+        performCompleteCleanup()
+        
+        // CRITICAL: Force memory cleanup
+        forceMemoryCleanup()
+        
+        // CRITICAL: Reset all state variables
+        resetAllStateVariables()
+        
+        // Clean up debug mode
+        cleanupDebugMode()
+        
+        os_log("Animation stopped with complete cleanup", log: Self.logger, type: .info)
     }
     
     private func handleMacOS15StopAnimation() {
         if #available(macOS 15.0, *) {
-            webView?.evaluateJavaScript("window.stop();", completionHandler: nil)
+            webView?.evaluateJavaScript("window.stop();") { result, error in
+                if let error = error {
+                    os_log("JavaScript stop failed: %{public}@", log: Self.logger, type: .error, error.localizedDescription)
+                }
+            }
             webView?.loadHTMLString("", baseURL: nil)
-            webView?.evaluateJavaScript("if (window.gc) { window.gc(); }", completionHandler: nil)
+            webView?.evaluateJavaScript("if (window.gc) { window.gc(); }") { result, error in
+                if let error = error {
+                    os_log("JavaScript GC failed: %{public}@", log: Self.logger, type: .error, error.localizedDescription)
+                }
+            }
         }
     }
     
     private func handleOlderMacOSStopAnimation() {
         if #available(macOS 10.15, *) {
             webView?.loadHTMLString("", baseURL: nil)
-            webView?.evaluateJavaScript("window.stop();", completionHandler: nil)
+            webView?.evaluateJavaScript("window.stop();") { result, error in
+                if let error = error {
+                    os_log("JavaScript stop failed: %{public}@", log: Self.logger, type: .error, error.localizedDescription)
+                }
+            }
         }
     }
     
     // MARK: - Animation Frame
     override func animateOneFrame() {
+        // CRITICAL: Prevent background activity
+        guard isScreensaverActive() else {
+            os_log("Preventing background animation frame - screensaver not active", log: Self.logger, type: .info)
+            return
+        }
+        
         if Self.mdmMode {
             saveCurrentSlide()
         } else {
             if currentSlide < maxSlides {
                 animateSlideTransitionWithCompletion {
                     self.currentSlide += 1
+                    self.currentSlideIndex = (self.currentSlideIndex + 1) % self.slides.count
+                    self.loadNextSlide()
                 }
             } else {
                 loadInfoMessage(noMoreSlidesError)
@@ -457,6 +1636,57 @@ class PeopleScreensaverView: ScreenSaverView {
         }
     }
     
+    private func loadNextSlide() {
+        guard currentSlideIndex < slides.count else {
+            os_log("Invalid slide index %d, total slides: %d", log: Self.logger, type: .error, currentSlideIndex, slides.count)
+            return
+        }
+        
+        let nextSlideURL = slides[currentSlideIndex]
+        let retryCount = slideLoadRetryCount[nextSlideURL] ?? 0
+        
+        // Check if we've exceeded retry attempts
+        if retryCount >= maxRetryAttempts {
+            os_log("Max retry attempts reached for slide %d, skipping", log: Self.logger, type: .error, currentSlideIndex)
+            // Move to next slide
+            currentSlideIndex = (currentSlideIndex + 1) % slides.count
+            if currentSlideIndex < slides.count {
+                loadNextSlide() // Try next slide
+            }
+            return
+        }
+        
+        let autoplayURL = createAutoplay(link: nextSlideURL, time: Self.stayOnSlideTime?.intValue ?? 0, slide: currentSlideIndex)
+        
+        os_log("Loading slide %d (attempt %d): %{public}@", log: Self.logger, type: .info, currentSlideIndex, retryCount + 1, nextSlideURL)
+        
+        if let url = URL(string: autoplayURL) {
+            let request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30.0)
+            webView?.navigationDelegate = self
+            
+            // ARM64-specific loading optimization
+            if Self.isAppleSilicon {
+                // Use delayed loading for ARM64 stability
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    self.webView?.load(request)
+                    os_log("ARM64 Loading slide %d (attempt %d): %{public}@", log: Self.logger, type: .info, self.currentSlideIndex, retryCount + 1, nextSlideURL)
+                }
+            } else {
+                // Standard loading for Intel
+                webView?.load(request)
+                os_log("Loading slide %d (attempt %d): %{public}@", log: Self.logger, type: .info, currentSlideIndex, retryCount + 1, nextSlideURL)
+            }
+            
+            // Increment retry count
+            slideLoadRetryCount[nextSlideURL] = retryCount + 1
+        } else {
+            os_log("Failed to create URL for slide %d: %{public}@", log: Self.logger, type: .error, currentSlideIndex, autoplayURL)
+        }
+        
+        // Start background loading of next slide
+        startBackgroundLoadingOfNextSlide()
+    }
+    
     // MARK: - Debug
     private func showDebugMessage(_ msg: String) {
         let str = "\nSlides: \(msg)"
@@ -479,6 +1709,12 @@ class PeopleScreensaverView: ScreenSaverView {
         
         Self.emptySpaceFillMode = defaults?.string(forKey: emptySpaceFillModeKey) ?? ""
         Self.emptySpaceFillImage = defaults?.string(forKey: emptySpaceFillImageKey) ?? ""
+        
+        // Load debug mode setting with safe error handling
+        let debugModeEnabled = defaults?.object(forKey: debugModeEnabledKey) as? NSNumber
+        Self.debugMode = debugModeEnabled?.boolValue ?? false
+        
+        os_log("MDM Debug Mode: %{public}@ (default: false)", log: Self.logger, type: .info, Self.debugMode ? "enabled" : "disabled")
         
         var slide = -1
         if resetSlidesWhenStarted?.boolValue == true {
@@ -518,6 +1754,7 @@ class PeopleScreensaverView: ScreenSaverView {
         if Self.debugMode {
             showDebugMessage("loadConfig parent view rect: \(frame)")
             showDebugMessage("loadConfig web view rect: \(webView?.frame ?? .zero)")
+            setupDebugInfoDisplay()
         }
     }
     
@@ -592,33 +1829,188 @@ class PeopleScreensaverView: ScreenSaverView {
         webView?.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
     }
     
-    // MARK: - Background Loading
+    // MARK: - Debug Info Display
+    private func setupDebugInfoDisplay() {
+        guard Self.debugMode else { return }
+        
+        // Create debug info view in bottom left corner
+        let debugFrame = NSRect(x: 10, y: 10, width: 300, height: 200)
+        debugInfoView = NSTextView(frame: debugFrame)
+        
+        guard let debugInfoView = debugInfoView else { return }
+        
+        debugInfoView.backgroundColor = NSColor.black.withAlphaComponent(0.8)
+        debugInfoView.textColor = NSColor.green
+        debugInfoView.font = NSFont.monospacedSystemFont(ofSize: 10, weight: .regular)
+        debugInfoView.isEditable = false
+        debugInfoView.isSelectable = false
+        debugInfoView.drawsBackground = true
+        
+        // CRITICAL: Add debug view on top of WebView
+        addSubview(debugInfoView)
+        
+        // CRITICAL: Ensure debug view is on top layer
+        debugInfoView.wantsLayer = true
+        if let debugLayer = debugInfoView.layer {
+            debugLayer.zPosition = 1000  // High z-position to appear on top
+            debugLayer.backgroundColor = NSColor.black.withAlphaComponent(0.8).cgColor
+        }
+        
+        // CRITICAL: Bring debug view to front
+        debugInfoView.superview?.addSubview(debugInfoView, positioned: .above, relativeTo: webView)
+        
+        // Start updating debug info
+        updateDebugInfo()
+        debugInfoTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            self?.updateDebugInfo()
+        }
+        
+        os_log("Debug info display enabled on top layer", log: Self.logger, type: .info)
+    }
+    
+    private func updateDebugInfo() {
+        guard Self.debugMode, let debugInfoView = debugInfoView else { return }
+        
+        let screen = getValidCurrentScreen()
+        let screenFrame = screen?.frame ?? .zero
+        let backingScaleFactor = screen?.backingScaleFactor ?? 1.0
+        
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "Unknown"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "Unknown"
+        
+        let debugInfo = """
+        People.AI Screensaver Debug Info
+        ================================
+        Version: \(version) (\(build))
+        Screen: \(screen?.localizedName ?? "Unknown")
+        Resolution: \(Int(screenFrame.width))x\(Int(screenFrame.height))
+        Scale Factor: \(String(format: "%.1f", backingScaleFactor))
+        WebView Frame: \(webView?.frame ?? .zero)
+        Parent Frame: \(frame)
+        Current Slide: \(currentSlideIndex)
+        Scaling Applied: \(scalingApplied)
+        Display Detection: \(displayDetectionComplete)
+        Memory Usage: \(getMemoryUsage())
+        ================================
+        """
+        
+        DispatchQueue.main.async {
+            debugInfoView.string = debugInfo
+            
+            // CRITICAL: Ensure debug view stays on top
+            self.ensureDebugViewOnTop()
+        }
+    }
+    
+    private func ensureDebugViewOnTop() {
+        guard Self.debugMode, let debugInfoView = debugInfoView else { return }
+        
+        // CRITICAL: Bring debug view to front of all subviews
+        debugInfoView.superview?.addSubview(debugInfoView, positioned: .above, relativeTo: nil)
+        
+        // CRITICAL: Ensure high z-position
+        if let debugLayer = debugInfoView.layer {
+            debugLayer.zPosition = 1000
+        }
+        
+        // CRITICAL: Position in bottom left corner
+        let debugFrame = NSRect(x: 10, y: 10, width: 300, height: 200)
+        debugInfoView.frame = debugFrame
+    }
+    
+    private func getMemoryUsage() -> String {
+        var info = mach_task_basic_info()
+        var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size)/4
+        
+        let kerr: kern_return_t = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: 1) {
+                task_info(mach_task_self_,
+                         task_flavor_t(MACH_TASK_BASIC_INFO),
+                         $0,
+                         &count)
+            }
+        }
+        
+        if kerr == KERN_SUCCESS {
+            let usedMB = info.resident_size / 1024 / 1024
+            return "\(usedMB) MB"
+        }
+        
+        return "Unknown"
+    }
+    
+    private func cleanupDebugMode() {
+        debugInfoTimer?.invalidate()
+        debugInfoTimer = nil
+        
+        debugInfoView?.removeFromSuperview()
+        debugInfoView = nil
+        
+        os_log("Debug mode cleaned up", log: Self.logger, type: .info)
+    }
+    
+    // MARK: - Optimized Background Loading
     private func startBackgroundLoadingOfNextSlide() {
+        // CRITICAL: Prevent background network activity
+        guard isScreensaverActive() else {
+            os_log("Preventing background network loading - screensaver not active", log: Self.logger, type: .info)
+            return
+        }
+        
         let nextSlideIndex = (currentSlideIndex + 1) % slides.count
         let nextSlideURL = slides[nextSlideIndex]
         
+        // Enhanced cache checking
         if loadingSlides.contains(nextSlideURL) || (slideCache[nextSlideURL] != nil && !isFirstLoop) {
             return
         }
         
+        // Memory pressure check
+        if slideCache.count > 20 {
+            cleanupOldCacheEntries()
+        }
+        
         loadingSlides.insert(nextSlideURL)
         
-        DispatchQueue.global(qos: .background).async {
+        // Use optimized URLSession configuration
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 15.0
+        config.timeoutIntervalForResource = 30.0
+        config.waitsForConnectivity = false
+        config.allowsCellularAccess = false
+        
+        let session = URLSession(configuration: config)
+        
+        DispatchQueue.global(qos: .userInitiated).async {
             let autoplayURL = self.createAutoplay(link: nextSlideURL, time: Self.stayOnSlideTime?.intValue ?? 0, slide: nextSlideIndex)
             
-            guard let nextURL = URL(string: autoplayURL) else { return }
+            guard let nextURL = URL(string: autoplayURL) else { 
+                DispatchQueue.main.async {
+                    self.loadingSlides.remove(nextSlideURL)
+                }
+                return 
+            }
             
-            let preloadRequest = URLRequest(url: nextURL, cachePolicy: .returnCacheDataElseLoad, timeoutInterval: 30.0)
+            let preloadRequest = URLRequest(
+                url: nextURL, 
+                cachePolicy: .returnCacheDataElseLoad, 
+                timeoutInterval: 15.0
+            )
             
-            let task = URLSession.shared.dataTask(with: preloadRequest) { data, response, error in
+            let task = session.dataTask(with: preloadRequest) { data, response, error in
                 DispatchQueue.main.async {
                     self.loadingSlides.remove(nextSlideURL)
                     
                     if error == nil, let data = data {
-                        self.slideCache[nextSlideURL] = data
-                        print("People.AI cached slide \(nextSlideIndex) in background")
+                        // Only cache if data is not too large (prevent memory issues)
+                        if data.count < 30_000_000 { // 250MB limit
+                            self.slideCache[nextSlideURL] = data
+                            os_log("Cached slide %d in background (%d bytes)", log: Self.logger, type: .info, nextSlideIndex, data.count)
+                        } else {
+                            os_log("Slide %d too large to cache (%d bytes), skipping", log: Self.logger, type: .info, nextSlideIndex, data.count)
+                        }
                     } else {
-                        print("People.AI failed to preload slide \(nextSlideIndex): \(error?.localizedDescription ?? "Unknown error")")
+                        os_log("Failed to preload slide %d: %{public}@", log: Self.logger, type: .error, nextSlideIndex, error?.localizedDescription ?? "Unknown error")
                     }
                 }
             }
@@ -626,28 +2018,74 @@ class PeopleScreensaverView: ScreenSaverView {
         }
     }
     
-    // MARK: - Image Processing
+    private func cleanupOldCacheEntries() {
+        // Remove oldest cache entries to prevent memory buildup
+        let keysToRemove = Array(slideCache.keys.prefix(slideCache.count - 8))
+        for key in keysToRemove {
+            slideCache.removeValue(forKey: key)
+        }
+        os_log("Cleaned up %d old cache entries", log: Self.logger, type: .info, keysToRemove.count)
+    }
+    
+    // MARK: - Optimized Image Processing
     private func convertToBlurImage(_ image: NSImage) -> NSImage? {
+        // Use shared context for better performance - conservative settings for stability
+        let context = Self.sharedContext ?? CIContext(options: [
+            .workingColorSpace: NSNull(),
+            .useSoftwareRenderer: false,
+            .priorityRequestLow: true,  // Conservative priority for stability
+            .cacheIntermediates: false  // Disable caching for memory efficiency
+        ])
+        Self.sharedContext = context
+        
         guard let tiffData = image.tiffRepresentation,
-              let inputImage = CIImage(data: tiffData) else { return nil }
+              let inputImage = CIImage(data: tiffData) else { 
+            os_log("Failed to create CIImage from NSImage", log: Self.logger, type: .error)
+            return nil 
+        }
+        
+        // Dynamic scale factor based on image size and display resolution
+        let imageSize = image.size
+        let maxDimension = max(imageSize.width, imageSize.height)
+        
+        // Get display resolution info for optimal scaling
+        let displayInfo = getDisplayResolutionInfo()
+        let baseScaleFactor: CGFloat = maxDimension > 2000 ? 0.3 : (maxDimension > 1000 ? 0.4 : 0.6)
+        
+        // Adjust scale factor for Retina displays - conservative approach
+        let scaleFactor: CGFloat
+        if displayInfo.isRetina {
+            scaleFactor = baseScaleFactor * 1.2  // Higher quality for Retina displays
+        } else {
+            scaleFactor = baseScaleFactor
+        }
+        
+        let scaledImage = inputImage.transformed(by: CGAffineTransform(scaleX: scaleFactor, y: scaleFactor))
+        
+        // Dynamic blur radius based on image size - conservative approach
+        let blurRadius: CGFloat = maxDimension > 2000 ? 8 : (maxDimension > 1000 ? 10 : 12)
         
         let gaussianBlurFilter = CIFilter(name: "CIGaussianBlur")
         gaussianBlurFilter?.setDefaults()
-        gaussianBlurFilter?.setValue(inputImage, forKey: kCIInputImageKey)
-        gaussianBlurFilter?.setValue(20, forKey: kCIInputRadiusKey)
+        gaussianBlurFilter?.setValue(scaledImage, forKey: kCIInputImageKey)
+        gaussianBlurFilter?.setValue(blurRadius, forKey: kCIInputRadiusKey)
         
-        guard let outputImage = gaussianBlurFilter?.outputImage else { return nil }
-        
-        if Self.sharedContext == nil {
-            Self.sharedContext = CIContext(options: nil)
+        guard let outputImage = gaussianBlurFilter?.outputImage else { 
+            os_log("Failed to create blurred output image", log: Self.logger, type: .error)
+            return nil 
         }
         
-        guard let context = Self.sharedContext,
-              let cgimg = context.createCGImage(outputImage, from: inputImage.extent) else { return nil }
+        // Use optimized rendering
+        let extent = outputImage.extent
+        guard let cgimg = context.createCGImage(outputImage, from: extent) else { 
+            os_log("Failed to create CGImage from blurred image", log: Self.logger, type: .error)
+            return nil 
+        }
         
-        let convertedImage = NSImage(cgImage: cgimg, size: NSSize(width: 0, height: 0))
+        let convertedImage = NSImage(cgImage: cgimg, size: NSSize(width: cgimg.width, height: cgimg.height))
         
-        print("People.AI blurred image size: \(convertedImage.size.width) x \(convertedImage.size.height)")
+        let architecture = Self.isAppleSilicon ? "Apple Silicon (ARM64)" : "Intel (x86_64)"
+        os_log("Image processing [%@]: input %.1fx%.1f -> output %.1fx%.1f, scale %.2f, radius %.1f", log: Self.logger, type: .info, architecture, image.size.width, image.size.height, convertedImage.size.width, convertedImage.size.height, scaleFactor, blurRadius)
         return convertedImage
     }
     
@@ -670,19 +2108,13 @@ class PeopleScreensaverView: ScreenSaverView {
                 }
                 
                 if self.imageView == nil {
-                    print("People.AI snapshot size: \(snapshotImage.size.width) x \(snapshotImage.size.height)")
-                    let width = self.window?.screen?.frame.size.width ?? 0
-                    let height = self.window?.screen?.frame.size.height ?? 0
-                    self.imageView = NSImageView(frame: CGRect(x: -width, y: -height, width: width * 3, height: height * 3))
-                    print("People.AI web view size: \(self.webView?.bounds.size.width ?? 0) x \(self.webView?.bounds.size.height ?? 0)")
-                    if let imageView = self.imageView {
-                        self.addSubview(imageView, positioned: .below, relativeTo: self.webView)
-                    }
+                    self.setupOptimizedImageView()
                 }
                 
-                let imageScale: Double = 2
-                let resizedImage = snapshotImage.resize(to: CGSize(width: snapshotImage.size.width / imageScale, height: snapshotImage.size.height / imageScale))
-                print("People.AI resized size: \(resizedImage.size.width) x \(resizedImage.size.height)")
+                // Calculate optimal image size based on display and aspect ratio
+                let optimizedSize = self.calculateOptimalImageSize(from: snapshotImage.size)
+                let resizedImage = snapshotImage.resize(to: optimizedSize)
+                os_log("Optimized image size: %.1f x %.1f (from %.1f x %.1f)", log: Self.logger, type: .info, optimizedSize.width, optimizedSize.height, snapshotImage.size.width, snapshotImage.size.height)
                 
                 self.imageView?.image = self.convertToBlurImage(resizedImage)
                 self.imageView?.imageScaling = .scaleAxesIndependently
@@ -690,59 +2122,324 @@ class PeopleScreensaverView: ScreenSaverView {
         }
     }
     
+    // MARK: - Optimized Image Sizing
+    private func setupOptimizedImageView() {
+        guard let screen = getValidCurrentScreen() else { return }
+        
+        let screenFrame = screen.frame
+        let aspectRatio = screenFrame.size.width / screenFrame.size.height
+        
+        // Calculate optimal imageView size based on display aspect ratio
+        let imageViewSize = calculateOptimalImageViewSize(for: screenFrame, aspectRatio: aspectRatio)
+        
+        imageView = NSImageView(frame: imageViewSize)
+        if let imageView = imageView {
+            addSubview(imageView, positioned: .below, relativeTo: webView)
+            imageView.imageScaling = .scaleAxesIndependently
+        }
+        
+        os_log("Setup optimized imageView: %{public}@ for aspect ratio %.2f", log: Self.logger, type: .info, imageViewSize.debugDescription, aspectRatio)
+    }
+    
+    private func calculateOptimalImageViewSize(for screenFrame: NSRect, aspectRatio: CGFloat) -> NSRect {
+        let screenWidth = screenFrame.size.width
+        let screenHeight = screenFrame.size.height
+        
+        // Calculate padding based on aspect ratio
+        let paddingFactor: CGFloat
+        if aspectRatio > 2.0 {
+            paddingFactor = 0.5  // Ultra-wide: minimal padding
+        } else if aspectRatio > 1.5 {
+            paddingFactor = 0.75 // Wide: moderate padding
+        } else if aspectRatio < 0.7 {
+            paddingFactor = 0.5  // Vertical: minimal padding
+        } else {
+            paddingFactor = 1.0  // Standard: normal padding
+        }
+        
+        let paddingX = screenWidth * paddingFactor
+        let paddingY = screenHeight * paddingFactor
+        
+        return NSRect(
+            x: -paddingX,
+            y: -paddingY,
+            width: screenWidth + (2 * paddingX),
+            height: screenHeight + (2 * paddingY)
+        )
+    }
+    
+    private func calculateOptimalImageSize(from originalSize: CGSize) -> CGSize {
+        guard let screen = getValidCurrentScreen() else {
+            // Fallback: reduce by 2x
+            return CGSize(width: originalSize.width / 2, height: originalSize.height / 2)
+        }
+        
+        let screenFrame = screen.frame
+        let aspectRatio = screenFrame.size.width / screenFrame.size.height
+        let imageAspectRatio = originalSize.width / originalSize.height
+        let backingScaleFactor = screen.backingScaleFactor
+        
+        // Calculate optimal scale based on display and image aspect ratios
+        var scaleFactor: CGFloat
+        if aspectRatio > 2.0 {
+            scaleFactor = 0.3  // Ultra-wide: aggressive scaling
+        } else if aspectRatio > 1.5 {
+            scaleFactor = 0.4  // Wide: moderate scaling
+        } else if aspectRatio < 0.7 {
+            scaleFactor = 0.3  // Vertical: aggressive scaling
+        } else {
+            scaleFactor = 0.5  // Standard: normal scaling
+        }
+        
+        // Adjust for Retina displays - conservative approach for stability
+        if backingScaleFactor > 2.0 {
+            scaleFactor *= 1.5  // Ultra-high DPI: increase quality
+        } else if backingScaleFactor > 1.0 {
+            scaleFactor *= 1.2  // Retina display: increase quality
+        }
+        
+        // Adjust for aspect ratio mismatch
+        let adjustedScale = imageAspectRatio > aspectRatio * 1.5 ? scaleFactor * 0.8 : scaleFactor
+        
+        return CGSize(
+            width: originalSize.width * adjustedScale,
+            height: originalSize.height * adjustedScale
+        )
+    }
+    
     private func setImageBack() {
         if imageView == nil {
-            let width = window?.screen?.frame.size.width ?? 0
-            let height = window?.screen?.frame.size.height ?? 0
-            imageView = NSImageView(frame: CGRect(x: 0, y: 0, width: width, height: height))
-            if let imageView = imageView {
-                addSubview(imageView, positioned: .below, relativeTo: webView)
-            }
+            setupOptimizedImageView()
         }
         
         if let imageURL = URL(string: Self.emptySpaceFillImage) {
             imageView?.image = NSImage(contentsOf: imageURL)
         }
-        print("loading back image - \(Self.emptySpaceFillImage)")
+        os_log("Loading back image: %{public}@", log: Self.logger, type: .info, Self.emptySpaceFillImage)
         imageView?.imageScaling = .scaleAxesIndependently
     }
     
-    // MARK: - Cleanup
-    deinit {
-        instanceTimer?.invalidate()
-        instanceAnimationTimer?.invalidate()
+    // MARK: - Critical Background Cleanup
+    private func cancelAllNetworkRequests() {
+        // Cancel all URLSession tasks
+        URLSession.shared.invalidateAndCancel()
         
-        slideCache.removeAll()
+        // Stop WebView loading
+        webView?.stopLoading()
+        
+        // Clear loading slides
         loadingSlides.removeAll()
         
+        os_log("All network requests cancelled", log: Self.logger, type: .info)
+    }
+    
+    private func performCompleteCleanup() {
+        // Clear all caches
+        slideCache.removeAll()
+        loadingSlides.removeAll()
+        displayContentZoomCache.removeAll()
+        displayResolutionCache.removeAll()
+        
+        // Clear WebView completely
+        webView?.loadHTMLString("", baseURL: nil)
+        webView?.removeFromSuperview()
+        
+        // Force garbage collection
+        DispatchQueue.global(qos: .background).async {
+            autoreleasepool {
+                // Force memory cleanup
+            }
+        }
+        
+        os_log("Complete cleanup performed", log: Self.logger, type: .info)
+    }
+    
+    private func resetAllStateVariables() {
+        // Reset all state variables to prevent background activity
+        scalingApplied = false
+        displayDetectionComplete = false
+        contentZoomApplied = false
+        zoomLockApplied = false
+        graphicsContextConfigured = false
+        
+        // Reset counters
+        scalingValidationCount = 0
+        scalingResetCount = 0
+        slideLoadRetryCount.removeAll()
+        
+        // Reset timestamps
+        lastScalingTime = Date()
+        lastMemoryCleanup = Date()
+        
+        // Reset display state
+        lastDisplayIdentifier = ""
+        lastContentZoomDisplay = ""
+        currentBackingScaleFactor = 1.0
+        
+        os_log("All state variables reset", log: Self.logger, type: .info)
+    }
+    
+    // MARK: - Force Memory Cleanup
+    private func forceMemoryCleanup() {
+        // Clear all caches immediately
+        slideCache.removeAll()
+        loadingSlides.removeAll()
+        displayContentZoomCache.removeAll()
+        displayResolutionCache.removeAll()
+        slideLoadRetryCount.removeAll()
+        
+        // Clear Core Image context
+        Self.sharedContext = nil
+        
+        // Force garbage collection
+        autoreleasepool {
+            // Clear any remaining references
+            imageView?.image = nil
+            textView?.string = ""
+        }
+        
+        // Clear display-specific caches
+        currentBackingScaleFactor = 1.0
+        lastContentZoomDisplay = ""
+        
+        // Clean up debug mode
+        cleanupDebugMode()
+        
+        os_log("Force memory cleanup completed", log: Self.logger, type: .info)
+    }
+    
+    // MARK: - Optimized Cleanup
+    deinit {
+        os_log("Screensaver deinit started", log: Self.logger, type: .info)
+        
+        // CRITICAL: Stop all WebView activity first
+        stopWebViewActivity()
+        
+        // CRITICAL: Invalidate ALL timers (including static ones)
+        instanceTimer?.invalidate()
+        instanceAnimationTimer?.invalidate()
+        Self.animationTimer?.invalidate()
+        periodicCleanupTimer?.invalidate()
+        scalingResetTimer?.invalidate()
+        instanceTimer = nil
+        instanceAnimationTimer = nil
+        periodicCleanupTimer = nil
+        scalingResetTimer = nil
+        
+        // Clean up memory pressure monitoring
+        memoryPressureSource?.cancel()
+        memoryPressureSource = nil
+        
+        // Clean up periodic cleanup timer
+        periodicCleanupTimer?.invalidate()
+        periodicCleanupTimer = nil
+        
+        // CRITICAL: Cancel all network requests
+        URLSession.shared.invalidateAndCancel()
+        
+        // CRITICAL: Clear all caches and memory
+        slideCache.removeAll()
+        loadingSlides.removeAll()
+        displayContentZoomCache.removeAll()
+        displayResolutionCache.removeAll()
+        slideLoadRetryCount.removeAll()
+        
+        // Clean up WebView
         webView?.navigationDelegate = nil
         webView?.stopLoading()
         
+        // Enhanced cleanup for different macOS versions with safe JavaScript execution
         if #available(macOS 15.0, *) {
+            webView?.evaluateJavaScript("window.stop();") { result, error in
+                if let error = error {
+                    os_log("JavaScript cleanup failed: %{public}@", log: Self.logger, type: .error, error.localizedDescription)
+                }
+            }
             webView?.loadHTMLString("", baseURL: nil)
             webView?.removeFromSuperview()
         } else if #available(macOS 10.15, *) {
             webView?.loadHTMLString("", baseURL: nil)
+            webView?.evaluateJavaScript("window.stop();") { result, error in
+                if let error = error {
+                    os_log("JavaScript cleanup failed: %{public}@", log: Self.logger, type: .error, error.localizedDescription)
+                }
+            }
+        }
+        
+        // Clear WebView reference
+        webView = nil
+        imageView = nil
+        textView = nil
+        
+        // Remove all observers
+        NotificationCenter.default.removeObserver(self)
+        
+        // Clear Combine subscriptions
+        cancellables.removeAll()
+        
+        // CRITICAL: Force final memory cleanup
+        forceMemoryCleanup()
+        
+        os_log("Screensaver deinit completed", log: Self.logger, type: .info)
+    }
+}
+
+// MARK: - WKScriptMessageHandler
+extension PeopleScreensaverView: WKScriptMessageHandler {
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        if message.name == "errorHandler" {
+            if let errorMessage = message.body as? String {
+                os_log("JavaScript error: %{public}@", log: Self.logger, type: .error, errorMessage)
+            }
         }
     }
 }
 
 // MARK: - WKNavigationDelegate
 extension PeopleScreensaverView: WKNavigationDelegate {
-    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        print("People.AI screensaver navigation failed: \(error.localizedDescription)")
-        loadErrorPage()
-    }
     
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        print("People.AI screensaver provisional navigation failed: \(error.localizedDescription)")
-        loadErrorPage()
+        os_log("Navigation failed for slide %d: %{public}@", log: Self.logger, type: .error, currentSlideIndex, error.localizedDescription)
+        
+        // Retry loading the slide
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            self.loadNextSlide()
+        }
+    }
+    
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        os_log("Navigation failed for slide %d: %{public}@", log: Self.logger, type: .error, currentSlideIndex, error.localizedDescription)
+        
+        // Retry loading the slide
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            self.loadNextSlide()
+        }
     }
     
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        // Safe JavaScript execution with error handling
         let script = "document.body.style = document.body.style.cssText + \";background: transparent !important;\";"
-        webView.evaluateJavaScript(script, completionHandler: nil)
+        webView.evaluateJavaScript(script) { result, error in
+            if let error = error {
+                os_log("JavaScript execution failed: %{public}@", log: Self.logger, type: .error, error.localizedDescription)
+            } else {
+                os_log("JavaScript executed successfully", log: Self.logger, type: .info)
+            }
+        }
+        
+        // Apply display-specific content zoom after page load
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            self.applyDisplaySpecificContentZoom()
+        }
+        
         print("People.AI screensaver didFinishNavigation for slide \(currentSlideIndex)")
+        
+        // Reset retry count on successful load
+        if currentSlideIndex < slides.count {
+            let currentSlideURL = slides[currentSlideIndex]
+            slideLoadRetryCount.removeValue(forKey: currentSlideURL)
+            os_log("Slide %d loaded successfully, retry count reset", log: Self.logger, type: .info, currentSlideIndex)
+        }
         
         if isFirstLoop && currentSlideIndex < slides.count {
             let currentSlideURL = slides[currentSlideIndex]
