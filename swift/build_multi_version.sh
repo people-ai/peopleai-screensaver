@@ -38,7 +38,7 @@ APPLE_ID="hopestar702@gmail.com"
 TEAM_ID="B865KYJU5B"
 DEV_ID_APP="Developer ID Application: People.ai, Inc (B865KYJU5B)"
 DEV_ID_INSTALLER="Developer ID Installer: People.ai, Inc (B865KYJU5B)"
-KEYCHAIN_PROFILE_NAME="PICpic123!@#"
+KEYCHAIN_PROFILE_NAME="People-ai"
 
 PROJECT_NAME="People.ai.xcodeproj"
 SCHEME_NAME="People.ai"
@@ -89,7 +89,7 @@ echo "✅ Archive successful with multi-version compatibility."
 # ==============================================================================
 echo "\n ▶️  Building the installer package (.pkg) with multi-version support..."
 
-SAVER_PATH="/Users/happy/Library/Developer/Xcode/DerivedData/People.ai-fxycyaphiuspekfjgfxjouxbnywv/Build/Intermediates.noindex/ArchiveIntermediates/People.ai/IntermediateBuildFilesPath/UninstalledProducts/macosx/$SCHEME_NAME.saver"
+SAVER_PATH="/Users/smile/Library/Developer/Xcode/DerivedData/People.ai-cmmnnfzmycpszidxlcizptbhracr/Build/Intermediates.noindex/ArchiveIntermediates/People.ai/IntermediateBuildFilesPath/UninstalledProducts/macosx/$SCHEME_NAME.saver"
 
 pkgbuild --install-location "/Library/Screen Savers/$SCHEME_NAME.saver" \
          --root "$SAVER_PATH" \

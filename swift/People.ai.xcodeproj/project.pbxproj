@@ -10,14 +10,16 @@
 		1A000001 /* PeopleScreensaverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000000 /* PeopleScreensaverView.swift */; };
 		1A000003 /* WKWebViewCustom.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A000002 /* WKWebViewCustom.swift */; };
 		1A000007 /* error.html in Resources */ = {isa = PBXBuildFile; fileRef = 1A000006 /* error.html */; };
+		766291512E9848B60017DD46 /* CacheManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 766291502E9848B60017DD46 /* CacheManager.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		1A000008 /* People.ai.saver */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "People.ai.saver"; sourceTree = BUILT_PRODUCTS_DIR; };
 		1A000000 /* PeopleScreensaverView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PeopleScreensaverView.swift; sourceTree = "<group>"; };
 		1A000002 /* WKWebViewCustom.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WKWebViewCustom.swift; sourceTree = "<group>"; };
 		1A000004 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		1A000006 /* error.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = error.html; sourceTree = "<group>"; };
+		1A000008 /* People.ai.saver */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = People.ai.saver; sourceTree = BUILT_PRODUCTS_DIR; };
+		766291502E9848B60017DD46 /* CacheManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CacheManager.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -42,12 +44,13 @@
 		1A00000B /* People.ai */ = {
 			isa = PBXGroup;
 			children = (
+				766291502E9848B60017DD46 /* CacheManager.swift */,
 				1A000000 /* PeopleScreensaverView.swift */,
 				1A000002 /* WKWebViewCustom.swift */,
 				1A000004 /* Info.plist */,
 				1A000006 /* error.html */,
 			);
-			path = "People.ai";
+			path = People.ai;
 			sourceTree = "<group>";
 		};
 		1A00000C = {
@@ -73,8 +76,8 @@
 			);
 			dependencies = (
 			);
-			name = "People.ai";
-			productName = "People.ai";
+			name = People.ai;
+			productName = People.ai;
 			productReference = 1A000008 /* People.ai.saver */;
 			productType = "com.apple.product-type.bundle";
 		};
@@ -128,6 +131,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				1A000001 /* PeopleScreensaverView.swift in Sources */,
+				766291512E9848B60017DD46 /* CacheManager.swift in Sources */,
 				1A000003 /* WKWebViewCustom.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -139,7 +143,10 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
-				ARCHS = "arm64 x86_64";
+				ARCHS = (
+					arm64,
+					x86_64,
+				);
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
@@ -204,7 +211,10 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
-				ARCHS = "arm64 x86_64";
+				ARCHS = (
+					arm64,
+					x86_64,
+				);
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
@@ -260,10 +270,14 @@
 		1A000015 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ARCHS = "arm64 x86_64";
+				ARCHS = (
+					arm64,
+					x86_64,
+				);
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = "";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Developer ID Application";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
@@ -271,7 +285,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = "People.ai/Info.plist";
+				INFOPLIST_FILE = People.ai/Info.plist;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2020 oles. All rights reserved.";
 				INFOPLIST_KEY_NSPrincipalClass = PeopleScreensaverView;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -292,10 +306,14 @@
 		1A000016 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ARCHS = "arm64 x86_64";
+				ARCHS = (
+					arm64,
+					x86_64,
+				);
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = "";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Developer ID Application";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
@@ -303,7 +321,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = "People.ai/Info.plist";
+				INFOPLIST_FILE = People.ai/Info.plist;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2020 oles. All rights reserved.";
 				INFOPLIST_KEY_NSPrincipalClass = PeopleScreensaverView;
 				LD_RUNPATH_SEARCH_PATHS = (

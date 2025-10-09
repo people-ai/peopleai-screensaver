@@ -54,6 +54,14 @@ class PeopleScreensaverView: ScreenSaverView {
     private var textView: NSTextView?
     private var imageView: NSImageView?
     
+    // MARK: - WebView Lifecycle Management
+    private var slidesDisplayedSinceLastTeardown: Int = 0
+    private let teardownInterval: Int = 20
+    private var cacheManager = CacheManager()
+    private var preloadTask: Task<Void, Never>?
+    
+    // Force rebuild trigger - remove this comment after successful compilation
+    
     // MARK: - Slide Management (Optimized)
     private var baseLink: String = ""
     private var currentSlide: Int = 0
@@ -62,7 +70,6 @@ class PeopleScreensaverView: ScreenSaverView {
     private var slides: [String] = []
     
     // MARK: - Enhanced Caching System
-    private var slideCache: [String: Data] = [:]
     private var loadingSlides: Set<String> = []
     private var currentSlideIndex: Int = 0
     private var isFirstLoop: Bool = true
@@ -468,12 +475,9 @@ class PeopleScreensaverView: ScreenSaverView {
     private func handleMemoryPressure() {
         os_log("Memory pressure detected, performing cleanup", log: Self.logger, type: .info)
         
-        // Clear slide cache if it's too large
-        if slideCache.count > 10 {
-            let keysToRemove = Array(slideCache.keys.prefix(slideCache.count - 5))
-            for key in keysToRemove {
-                slideCache.removeValue(forKey: key)
-            }
+        // Clear cache using Actor
+        Task { [weak self] in
+            await self?.cacheManager.clear()
         }
         
         // Force garbage collection
@@ -486,8 +490,10 @@ class PeopleScreensaverView: ScreenSaverView {
     }
     
     private func cleanupMemoryIntensiveResources() {
-        // Clear old cached slides
-        slideCache.removeAll()
+        // Clear cache using Actor
+        Task { [weak self] in
+            await self?.cacheManager.clear()
+        }
         loadingSlides.removeAll()
         
         // Clear WebView cache if needed with safe JavaScript execution
@@ -502,6 +508,18 @@ class PeopleScreensaverView: ScreenSaverView {
     
     // MARK: - Optimized WebView Setup
     private func setupWebView() {
+        rebuildWebView()
+    }
+    
+    // MARK: - WebView Lifecycle Management
+    private func rebuildWebView() {
+        // Clean up existing WebView if present
+        if let existingWebView = webView {
+            existingWebView.removeFromSuperview()
+            existingWebView.navigationDelegate = nil
+            existingWebView.stopLoading()
+        }
+        
         let config = WKWebViewConfiguration()
         
         // Performance optimizations
@@ -625,7 +643,45 @@ class PeopleScreensaverView: ScreenSaverView {
             setupDebugView()
         }
         
-        os_log("WebView setup completed with performance optimizations", log: Self.logger, type: .info)
+        os_log("WebView rebuilt with performance optimizations", log: Self.logger, type: .info)
+    }
+    
+    // MARK: - WebView Teardown Cycle
+    private func performWebViewTeardown() {
+        os_log("Performing WebView teardown after %d slides", log: Self.logger, type: .info, slidesDisplayedSinceLastTeardown)
+        
+        // Stop all WebView activity
+        webView?.stopLoading()
+        webView?.navigationDelegate = nil
+        
+        // Remove from view hierarchy
+        webView?.removeFromSuperview()
+        
+        // Clear WebView reference to deallocate and release WebKit.WebContent process
+        webView = nil
+        
+        // Force garbage collection
+        DispatchQueue.global(qos: .background).async {
+            autoreleasepool {
+                // Force memory cleanup
+            }
+        }
+        
+        // Rebuild WebView with fresh instance
+        rebuildWebView()
+        
+        // Reset counter
+        slidesDisplayedSinceLastTeardown = 0
+        
+        os_log("WebView teardown completed, fresh instance created", log: Self.logger, type: .info)
+    }
+    
+    private func checkForTeardownCycle() {
+        slidesDisplayedSinceLastTeardown += 1
+        
+        if slidesDisplayedSinceLastTeardown >= teardownInterval {
+            performWebViewTeardown()
+        }
     }
     
     private func setupDebugView() {
@@ -709,7 +765,6 @@ class PeopleScreensaverView: ScreenSaverView {
     
     // MARK: - Initial State
     private func setupInitialState() {
-        slideCache = [:]
         loadingSlides = []
         currentSlideIndex = 0
         isFirstLoop = true
@@ -1949,7 +2004,7 @@ class PeopleScreensaverView: ScreenSaverView {
         os_log("Debug mode cleaned up", log: Self.logger, type: .info)
     }
     
-    // MARK: - Optimized Background Loading
+    // MARK: - Modern Async Background Loading
     private func startBackgroundLoadingOfNextSlide() {
         // CRITICAL: Prevent background network activity
         guard isScreensaverActive() else {
@@ -1957,20 +2012,43 @@ class PeopleScreensaverView: ScreenSaverView {
             return
         }
         
+        // Cancel previous preload task
+        preloadTask?.cancel()
+        
         let nextSlideIndex = (currentSlideIndex + 1) % slides.count
         let nextSlideURL = slides[nextSlideIndex]
         
         // Enhanced cache checking
-        if loadingSlides.contains(nextSlideURL) || (slideCache[nextSlideURL] != nil && !isFirstLoop) {
+        if loadingSlides.contains(nextSlideURL) {
             return
         }
         
-        // Memory pressure check
-        if slideCache.count > 20 {
-            cleanupOldCacheEntries()
+        loadingSlides.insert(nextSlideURL)
+        
+        // Create new async task
+        preloadTask = Task {
+            await preloadSlide(nextSlideURL, index: nextSlideIndex)
+        }
+    }
+    
+    private func preloadSlide(_ slideURL: String, index: Int) async {
+        // Check if already cached
+        let normalizedKey = CacheManager.normalizeKey(from: slideURL)
+        if await cacheManager.get(normalizedKey) != nil && !isFirstLoop {
+            DispatchQueue.main.async {
+                self.loadingSlides.remove(slideURL)
+            }
+            return
         }
         
-        loadingSlides.insert(nextSlideURL)
+        let autoplayURL = createAutoplay(link: slideURL, time: Self.stayOnSlideTime?.intValue ?? 0, slide: index)
+        
+        guard let url = URL(string: autoplayURL) else {
+            DispatchQueue.main.async {
+                self.loadingSlides.remove(slideURL)
+            }
+            return
+        }
         
         // Use optimized URLSession configuration
         let config = URLSessionConfiguration.default
@@ -1981,51 +2059,25 @@ class PeopleScreensaverView: ScreenSaverView {
         
         let session = URLSession(configuration: config)
         
-        DispatchQueue.global(qos: .userInitiated).async {
-            let autoplayURL = self.createAutoplay(link: nextSlideURL, time: Self.stayOnSlideTime?.intValue ?? 0, slide: nextSlideIndex)
+        do {
+            let (data, _) = try await session.data(from: url)
             
-            guard let nextURL = URL(string: autoplayURL) else { 
-                DispatchQueue.main.async {
-                    self.loadingSlides.remove(nextSlideURL)
-                }
-                return 
+            // Only cache if data is not too large (prevent memory issues)
+            if data.count < 30_000_000 { // 30MB limit
+                await cacheManager.set(normalizedKey, value: data)
+                os_log("Cached slide %d in background (%d bytes)", log: Self.logger, type: .info, index, data.count)
+            } else {
+                os_log("Slide %d too large to cache (%d bytes), skipping", log: Self.logger, type: .info, index, data.count)
             }
-            
-            let preloadRequest = URLRequest(
-                url: nextURL, 
-                cachePolicy: .returnCacheDataElseLoad, 
-                timeoutInterval: 15.0
-            )
-            
-            let task = session.dataTask(with: preloadRequest) { data, response, error in
-                DispatchQueue.main.async {
-                    self.loadingSlides.remove(nextSlideURL)
-                    
-                    if error == nil, let data = data {
-                        // Only cache if data is not too large (prevent memory issues)
-                        if data.count < 30_000_000 { // 250MB limit
-                            self.slideCache[nextSlideURL] = data
-                            os_log("Cached slide %d in background (%d bytes)", log: Self.logger, type: .info, nextSlideIndex, data.count)
-                        } else {
-                            os_log("Slide %d too large to cache (%d bytes), skipping", log: Self.logger, type: .info, nextSlideIndex, data.count)
-                        }
-                    } else {
-                        os_log("Failed to preload slide %d: %{public}@", log: Self.logger, type: .error, nextSlideIndex, error?.localizedDescription ?? "Unknown error")
-                    }
-                }
-            }
-            task.resume()
+        } catch {
+            os_log("Failed to preload slide %d: %{public}@", log: Self.logger, type: .error, index, error.localizedDescription)
+        }
+        
+        DispatchQueue.main.async {
+            self.loadingSlides.remove(slideURL)
         }
     }
     
-    private func cleanupOldCacheEntries() {
-        // Remove oldest cache entries to prevent memory buildup
-        let keysToRemove = Array(slideCache.keys.prefix(slideCache.count - 8))
-        for key in keysToRemove {
-            slideCache.removeValue(forKey: key)
-        }
-        os_log("Cleaned up %d old cache entries", log: Self.logger, type: .info, keysToRemove.count)
-    }
     
     // MARK: - Optimized Image Processing
     private func convertToBlurImage(_ image: NSImage) -> NSImage? {
@@ -2221,6 +2273,10 @@ class PeopleScreensaverView: ScreenSaverView {
     
     // MARK: - Critical Background Cleanup
     private func cancelAllNetworkRequests() {
+        // Cancel preload task
+        preloadTask?.cancel()
+        preloadTask = nil
+        
         // Cancel all URLSession tasks
         URLSession.shared.invalidateAndCancel()
         
@@ -2234,8 +2290,10 @@ class PeopleScreensaverView: ScreenSaverView {
     }
     
     private func performCompleteCleanup() {
-        // Clear all caches
-        slideCache.removeAll()
+        // Clear all caches using Actor
+        Task { [weak self] in
+            await self?.cacheManager.clear()
+        }
         loadingSlides.removeAll()
         displayContentZoomCache.removeAll()
         displayResolutionCache.removeAll()
@@ -2281,8 +2339,10 @@ class PeopleScreensaverView: ScreenSaverView {
     
     // MARK: - Force Memory Cleanup
     private func forceMemoryCleanup() {
-        // Clear all caches immediately
-        slideCache.removeAll()
+        // Clear all caches immediately using Actor
+        Task { [weak self] in
+            await self?.cacheManager.clear()
+        }
         loadingSlides.removeAll()
         displayContentZoomCache.removeAll()
         displayResolutionCache.removeAll()
@@ -2337,8 +2397,10 @@ class PeopleScreensaverView: ScreenSaverView {
         // CRITICAL: Cancel all network requests
         URLSession.shared.invalidateAndCancel()
         
-        // CRITICAL: Clear all caches and memory
-        slideCache.removeAll()
+        // CRITICAL: Clear all caches and memory using Actor
+        Task { [weak self] in
+            await self?.cacheManager.clear()
+        }
         loadingSlides.removeAll()
         displayContentZoomCache.removeAll()
         displayResolutionCache.removeAll()
@@ -2434,6 +2496,9 @@ extension PeopleScreensaverView: WKNavigationDelegate {
         
         print("People.AI screensaver didFinishNavigation for slide \(currentSlideIndex)")
         
+        // Check for WebView teardown cycle
+        checkForTeardownCycle()
+        
         // Reset retry count on successful load
         if currentSlideIndex < slides.count {
             let currentSlideURL = slides[currentSlideIndex]
@@ -2471,9 +2536,13 @@ extension PeopleScreensaverView: WKNavigationDelegate {
     private func cacheCurrentSlideContent(_ slideURL: String) {
         webView?.evaluateJavaScript("document.documentElement.outerHTML") { result, error in
             if error == nil, let htmlString = result as? String {
-                let htmlData = htmlString.data(using: .utf8)
-                self.slideCache[slideURL] = htmlData
-                print("People.AI cached current slide \(self.currentSlideIndex) content")
+                if let htmlData = htmlString.data(using: .utf8) {
+                    let normalizedKey = CacheManager.normalizeKey(from: slideURL)
+                    Task { [weak self] in
+                        await self?.cacheManager.set(normalizedKey, value: htmlData)
+                    }
+                    print("People.AI cached current slide \(self.currentSlideIndex) content")
+                }
             }
         }
     }
