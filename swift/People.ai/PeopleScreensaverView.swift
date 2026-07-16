@@ -78,6 +78,7 @@ class PeopleScreensaverView: ScreenSaverView {
     private var instanceTimer: Timer?
     private var instanceAnimationTimer: Timer?
     private var instanceCurrentLink: String = ""
+    private var refreshTimerInactiveStreak: Int = 0
     
     // MARK: - Display Optimization
     private var instanceResizeWidth: CGFloat = 0.05
@@ -103,6 +104,12 @@ class PeopleScreensaverView: ScreenSaverView {
     // MARK: - Image Loading Retry
     private var slideLoadRetryCount: [String: Int] = [:]
     private var maxRetryAttempts: Int = 3
+
+    // MARK: - Global Navigation Failure Tracking (network outage detection)
+    private var consecutiveNavigationFailures: Int = 0
+    private let maxConsecutiveNavigationFailures: Int = 3
+    private var errorRecoveryTimer: Timer?
+    private let errorRecoveryInterval: TimeInterval = 30.0
     
     // MARK: - Display-Specific Content Zoom
     private var displayContentZoomCache: [String: CGFloat] = [:]
@@ -208,14 +215,12 @@ class PeopleScreensaverView: ScreenSaverView {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
             self.updateWebViewForCurrentDisplay()
         }
-        
-        if Self.mdmMode {
-            loadMdm()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                self.checkViewRefreshTime()
-                self.animationTimeInterval = 1.0
-            }
-        }
+
+        // MEMORY FIX: the live page load / MDM config load used to happen unconditionally here,
+        // regardless of whether the screensaver was ever actually started. That let any instance
+        // created but never animated (preview rows, orphaned display instances) load and
+        // periodically reload a live WebKit page forever. That work now happens in
+        // startAnimation() instead, gated the same way the rest of the background processes are.
     }
     
     // MARK: - Memory Management Setup
@@ -265,139 +270,94 @@ class PeopleScreensaverView: ScreenSaverView {
         os_log("Periodic cleanup completed", log: Self.logger, type: .info)
     }
     
-    // MARK: - Periodic Scaling Reset
-    private func performPeriodicScalingReset() {
-        // Only perform reset if screensaver is actually active
-        guard isScreensaverActive() else {
-            os_log("Periodic scaling reset skipped - screensaver not active", log: Self.logger, type: .info)
-            return
-        }
-        
-        os_log("Performing periodic scaling reset to prevent cumulative scaling", log: Self.logger, type: .info)
-        
-        // Reset all scaling state
-        scalingApplied = false
-        displayDetectionComplete = false
-        contentZoomApplied = false
-        zoomLockApplied = false
-        baseScalingApplied = false
-        
-        // Reset WebView to monitor bounds
-        resetToOriginalFrame()
-        
-        // Clear scaling caches
-        displayContentZoomCache.removeAll()
-        lastContentZoomDisplay = ""
-        
-        // Force fresh display detection
-        lastDisplayIdentifier = ""
-        
-        // Reapply proper scaling
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            self.updateWebViewForCurrentDisplay()
-        }
-        
-        os_log("Periodic scaling reset completed", log: Self.logger, type: .info)
-    }
-    
-    // MARK: - Dual Monitor Specific Scaling Reset
-    private func performDualMonitorScalingReset() {
-        os_log("Dual monitor: Performing specific scaling reset for dual monitor stability", log: Self.logger, type: .info)
-        
-        // Reset all scaling state specifically for dual monitor
-        scalingApplied = false
-        displayDetectionComplete = false
-        contentZoomApplied = false
-        zoomLockApplied = false
-        baseScalingApplied = false
-        
-        // Clear all scaling caches
-        displayContentZoomCache.removeAll()
-        displayResolutionCache.removeAll()
-        lastContentZoomDisplay = ""
-        lastDisplayIdentifier = ""
-        
-        // Reset WebView to monitor bounds
-        resetToOriginalFrame()
-        
-        // Force fresh screen detection
-        guard let screen = getValidCurrentScreen() else {
-            os_log("Dual monitor: No valid screen detected during reset", log: Self.logger, type: .error)
-            return
-        }
-        
-        // Validate screen dimensions for dual monitor
-        let screenFrame = screen.frame
-        let aspectRatio = screenFrame.size.width / screenFrame.size.height
-        
-        if aspectRatio < 0.1 || aspectRatio > 10.0 {
-            os_log("Dual monitor: Invalid aspect ratio %.2f during reset, using default scaling", log: Self.logger, type: .error)
-            applyDefaultScaling()
-            return
-        }
-        
-        if screenFrame.size.width < 100 || screenFrame.size.height < 100 {
-            os_log("Dual monitor: Screen too small %.0fx%.0f during reset, using default scaling", log: Self.logger, type: .error)
-            applyDefaultScaling()
-            return
-        }
-        
-        os_log("Dual monitor: Scaling reset completed successfully for %{public}@", log: Self.logger, type: .info, screen.localizedName)
-    }
-    
-    // MARK: - Startup Scaling Reset
-    private func performStartupScalingReset() {
-        os_log("Startup: Performing scaling reset to prevent persistent zoom issues", log: Self.logger, type: .info)
-        
-        // CRITICAL: Reset all scaling state at startup
-        scalingApplied = false
-        displayDetectionComplete = false
-        contentZoomApplied = false
-        zoomLockApplied = false
-        baseScalingApplied = false
-        
-        // Clear all scaling caches
-        displayContentZoomCache.removeAll()
-        displayResolutionCache.removeAll()
-        lastContentZoomDisplay = ""
-        lastDisplayIdentifier = ""
-        
-        // Reset WebView to monitor bounds
-        resetToOriginalFrame()
-        
-        // Force fresh screen detection
-        guard let screen = getValidCurrentScreen() else {
-            os_log("Startup: No valid screen detected during reset", log: Self.logger, type: .error)
-            return
-        }
-        
-        // Validate screen dimensions for startup
-        let screenFrame = screen.frame
-        let aspectRatio = screenFrame.size.width / screenFrame.size.height
-        
-        if aspectRatio < 0.1 || aspectRatio > 10.0 {
-            os_log("Startup: Invalid aspect ratio %.2f during reset, using default scaling", log: Self.logger, type: .error)
-            applyDefaultScaling()
-            return
-        }
-        
-        if screenFrame.size.width < 100 || screenFrame.size.height < 100 {
-            os_log("Startup: Screen too small %.0fx%.0f during reset, using default scaling", log: Self.logger, type: .error)
-            applyDefaultScaling()
-            return
-        }
-        
-        // Apply proper scaling after reset
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            self.updateWebViewForCurrentDisplay()
-            
-            // CRITICAL: Ensure debug view stays on top after WebView updates
-            if Self.debugMode {
-                self.ensureDebugViewOnTop()
+    // MARK: - Scaling Reset (consolidated)
+    // Periodic/dual-monitor/startup resets used to be three near-identical ~50-line functions.
+    // They're merged here into one parameterized implementation; behavior at each of the three
+    // call sites (displayConfigurationChanged, startAnimation, the scalingResetTimer) is unchanged.
+    private func performScalingReset(
+        context: String,
+        checkScreensaverActive: Bool,
+        clearDisplayResolutionCache: Bool,
+        validateScreen: Bool,
+        reapplyDelay: TimeInterval?,
+        restoreDebugViewOnTop: Bool = false
+    ) {
+        if checkScreensaverActive {
+            guard isScreensaverActive() else {
+                os_log("%{public}@ scaling reset skipped - screensaver not active", log: Self.logger, type: .info, context)
+                return
             }
         }
-        
-        os_log("Startup: Scaling reset completed successfully for %{public}@", log: Self.logger, type: .info, screen.localizedName)
+
+        os_log("%{public}@: Performing scaling reset", log: Self.logger, type: .info, context)
+
+        scalingApplied = false
+        displayDetectionComplete = false
+        contentZoomApplied = false
+        zoomLockApplied = false
+        baseScalingApplied = false
+
+        displayContentZoomCache.removeAll()
+        lastContentZoomDisplay = ""
+        if clearDisplayResolutionCache {
+            displayResolutionCache.removeAll()
+        }
+        lastDisplayIdentifier = ""
+
+        resetToOriginalFrame()
+
+        if validateScreen {
+            guard let screen = getValidCurrentScreen() else {
+                os_log("%{public}@: No valid screen detected during reset", log: Self.logger, type: .error, context)
+                return
+            }
+
+            let screenFrame = screen.frame
+            let aspectRatio = screenFrame.size.width / screenFrame.size.height
+
+            if aspectRatio < 0.1 || aspectRatio > 10.0 {
+                os_log("%{public}@: Invalid aspect ratio %.2f during reset, using default scaling", log: Self.logger, type: .error, context, aspectRatio)
+                applyDefaultScaling()
+                return
+            }
+
+            if screenFrame.size.width < 100 || screenFrame.size.height < 100 {
+                os_log("%{public}@: Screen too small %.0fx%.0f during reset, using default scaling", log: Self.logger, type: .error, context, screenFrame.size.width, screenFrame.size.height)
+                applyDefaultScaling()
+                return
+            }
+
+            os_log("%{public}@: Scaling reset completed successfully for %{public}@", log: Self.logger, type: .info, context, screen.localizedName)
+        } else {
+            os_log("%{public}@: Scaling reset completed", log: Self.logger, type: .info, context)
+        }
+
+        if let delay = reapplyDelay {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                self.updateWebViewForCurrentDisplay()
+                if restoreDebugViewOnTop && Self.debugMode {
+                    self.ensureDebugViewOnTop()
+                }
+            }
+        }
+    }
+
+    private func performPeriodicScalingReset() {
+        performScalingReset(context: "Periodic", checkScreensaverActive: true,
+                             clearDisplayResolutionCache: false, validateScreen: false,
+                             reapplyDelay: 0.5)
+    }
+
+    private func performDualMonitorScalingReset() {
+        performScalingReset(context: "Dual monitor", checkScreensaverActive: false,
+                             clearDisplayResolutionCache: true, validateScreen: true,
+                             reapplyDelay: nil)
+    }
+
+    private func performStartupScalingReset() {
+        performScalingReset(context: "Startup", checkScreensaverActive: false,
+                             clearDisplayResolutionCache: true, validateScreen: true,
+                             reapplyDelay: 0.1, restoreDebugViewOnTop: true)
     }
     
     private func resetScalingState() {
@@ -434,44 +394,18 @@ class PeopleScreensaverView: ScreenSaverView {
     }
     
     private func validateDisplayConfiguration() {
-        // Check if current display configuration is still valid
-        guard let currentScreen = getValidCurrentScreen() else {
+        // NOTE: content zoom is locked to 1.0 (calculateDisplaySpecificContentZoom) and instance
+        // scaling doesn't drive layout (applyDefaultScaling/applyZoomPrevention use monitor bounds
+        // directly), so there's no meaningful "expected vs current scaling" drift to detect here
+        // (the removed calculateExpectedScaling() always returned a constant due to a clamp bug).
+        // This just confirms the display is still valid.
+        guard getValidCurrentScreen() != nil else {
             os_log("Display configuration validation failed - no valid screen", log: Self.logger, type: .error)
             return
         }
-        
-        let screenFrame = currentScreen.frame
-        let currentAspectRatio = screenFrame.size.width / screenFrame.size.height
-        
-        // Recalculate scaling if aspect ratio has changed significantly
-        let expectedScaling = calculateExpectedScaling(for: currentAspectRatio)
-        let currentScaling = (instanceResizeWidth, instanceResizeHeight)
-        
-        if abs(expectedScaling.0 - currentScaling.0) > 0.01 || abs(expectedScaling.1 - currentScaling.1) > 0.01 {
-            os_log("Display configuration drift detected, recalculating scaling", log: Self.logger, type: .info)
-            updateWebViewForCurrentDisplay()
-        }
     }
-    
-    private func calculateExpectedScaling(for aspectRatio: CGFloat) -> (CGFloat, CGFloat) {
-        var width: CGFloat = 0.05
-        var height: CGFloat = 0.05
-        
-        if aspectRatio > 2.0 {
-            width = 0.03
-            height = 0.03
-        } else if aspectRatio > 1.5 {
-            width = 0.04
-            height = 0.04
-        } else if aspectRatio < 0.7 {
-            width = 0.03
-            height = 0.03
-        }
-        
-        return (min(width, 0.01), min(height, 0.01))
-    }
-    
-    
+
+
     private func handleMemoryPressure() {
         os_log("Memory pressure detected, performing cleanup", log: Self.logger, type: .info)
         
@@ -793,7 +727,8 @@ class PeopleScreensaverView: ScreenSaverView {
         
         // Clear any cached retry counts
         slideLoadRetryCount.removeAll()
-        
+        refreshTimerInactiveStreak = 0
+
         os_log("Initial state reset completed", log: Self.logger, type: .info)
     }
     
@@ -904,11 +839,10 @@ class PeopleScreensaverView: ScreenSaverView {
         let aspectRatio = screenFrame.size.width / screenFrame.size.height
         
         if zoom?.boolValue == true {
-            calculateInstanceScalingForAspectRatio(aspectRatio)
             applyValidatedScaling()
-            
+
             if Self.debugMode {
-                showDebugMessage("Instance scaling applied: width=\(instanceResizeWidth), height=\(instanceResizeHeight), aspect=\(aspectRatio)")
+                showDebugMessage("Zoom scaling applied (locked to monitor bounds), aspect=\(aspectRatio)")
             }
         } else {
             applyDefaultScaling()
@@ -1124,10 +1058,6 @@ class PeopleScreensaverView: ScreenSaverView {
         }
     }
     
-    private func getDisplayDPI(_ screen: NSScreen) -> CGFloat {
-        return screen.backingScaleFactor
-    }
-    
     private func calculateDisplaySpecificContentZoom(for screen: NSScreen) -> CGFloat {
         // ZOOM PREVENTION: Always return 1.0 to prevent any zoom/overscaling
         let contentZoom: CGFloat = 1.0
@@ -1306,41 +1236,6 @@ class PeopleScreensaverView: ScreenSaverView {
         return (scale: backingScaleFactor, resolution: resolution, isRetina: isRetina)
     }
     
-    private func calculateOptimalImageScale(for display: NSScreen) -> CGFloat {
-        let backingScaleFactor = display.backingScaleFactor
-        let aspectRatio = display.frame.size.width / display.frame.size.height
-        
-        // Base scale factor
-        var scaleFactor: CGFloat = 1.0
-        
-        // Adjust for Retina displays
-        if backingScaleFactor > 2.0 {
-            scaleFactor = 0.5  // Ultra-high DPI
-        } else if backingScaleFactor > 1.0 {
-            scaleFactor = 0.7  // Retina display
-        } else {
-            scaleFactor = 1.0  // Standard display
-        }
-        
-        // Adjust for aspect ratio
-        if aspectRatio > 2.0 {
-            scaleFactor *= 0.8  // Ultra-wide displays
-        } else if aspectRatio < 0.7 {
-            scaleFactor *= 0.8  // Vertical displays
-        }
-        
-        return max(0.3, min(1.0, scaleFactor))
-    }
-    
-    // MARK: - Scaling Calculations
-    private func calculateInstanceScalingForAspectRatio(_ aspectRatio: CGFloat) {
-        // FIXED: Use minimal scaling for proper content fit
-        instanceResizeWidth = 0.0
-        instanceResizeHeight = 0.0
-        
-        print("People.AI using minimal scaling for proper content fit: width=\(instanceResizeWidth), height=\(instanceResizeHeight) for aspect=\(aspectRatio)")
-    }
-    
     private func resetToOriginalFrame() {
         guard let webView = webView else { return }
         
@@ -1425,11 +1320,32 @@ class PeopleScreensaverView: ScreenSaverView {
         
         // CRITICAL: Reset scaling state at startup to prevent persistent zoom issues
         performStartupScalingReset()
-        
+
         // Enable background processes only when screensaver is actually active
         enableBackgroundProcesses()
+
+        // MEMORY FIX: heavy content load moved here from init/performDelayedInitialization so
+        // instances that are created but never started (preview rows, orphaned display
+        // instances) never touch the network or schedule a reload timer.
+        if isPreview {
+            loadPreviewPlaceholder()
+        } else if Self.mdmMode {
+            loadMdm()
+            checkViewRefreshTime()
+            animationTimeInterval = 1.0
+        }
     }
-    
+
+    private func loadPreviewPlaceholder() {
+        // Static, non-networked content for picker/preview thumbnails — no live Slides autoplay,
+        // no refresh timer, so preview rows can't leak memory in the background.
+        webView?.loadHTMLString(
+            "<html><body style=\"margin:0;background:#ffffff;display:flex;align-items:center;justify-content:center;font-family:-apple-system,sans-serif;color:#666;\"><b>People.ai Screensaver</b></body></html>",
+            baseURL: nil
+        )
+        os_log("Preview instance: loaded static placeholder, skipping live MDM load", log: Self.logger, type: .info)
+    }
+
     // MARK: - Background Process Management
     private func isScreensaverActive() -> Bool {
         // Check if screensaver is actually running and visible
@@ -1539,7 +1455,9 @@ class PeopleScreensaverView: ScreenSaverView {
         instanceTimer = nil
         instanceAnimationTimer?.invalidate()
         instanceAnimationTimer = nil
-        
+        errorRecoveryTimer?.invalidate()
+        errorRecoveryTimer = nil
+
         // Disable all background processes
         disableBackgroundProcesses()
         
@@ -1699,8 +1617,11 @@ class PeopleScreensaverView: ScreenSaverView {
         
         let nextSlideURL = slides[currentSlideIndex]
         let retryCount = slideLoadRetryCount[nextSlideURL] ?? 0
-        
-        // Check if we've exceeded retry attempts
+
+        // Check if we've exceeded retry attempts. NOTE: consecutiveNavigationFailures (see the
+        // WKNavigationDelegate extension) trips at the same threshold and is checked first on
+        // every real navigation failure, so in practice this per-slide branch is not expected to
+        // be exercised — don't change one threshold without checking the other.
         if retryCount >= maxRetryAttempts {
             os_log("Max retry attempts reached for slide %d, skipping", log: Self.logger, type: .error, currentSlideIndex)
             // Move to next slide
@@ -1832,19 +1753,43 @@ class PeopleScreensaverView: ScreenSaverView {
     }
     
     private func checkViewRefreshTime() {
+        // Self-protecting: refuse to schedule a repeating reload timer for an instance that
+        // isn't actually the active screensaver, regardless of what caller reaches this.
+        guard isScreensaverActive() else {
+            os_log("checkViewRefreshTime skipped - screensaver not active", log: Self.logger, type: .info)
+            return
+        }
+
         let moduleName = Bundle(for: type(of: self)).bundleIdentifier ?? ""
         let defaults = UserDefaults(suiteName: moduleName)
         let viewRefreshTime = defaults?.object(forKey: viewRefreshTimeKey) as? NSNumber
-        
+
         let interval = viewRefreshTime?.doubleValue ?? 0
-        if interval >= 1.0 {
-            instanceTimer?.invalidate()
-            
-            instanceTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-                guard let self = self, !self.isHidden else { return }
-                self.loadMdm()
-                print("view refreshed.")
+        guard interval >= 1.0 else { return }
+
+        instanceTimer?.invalidate()
+        refreshTimerInactiveStreak = 0
+
+        instanceTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+
+            guard self.isScreensaverActive() else {
+                // Tolerate a single transient miss (e.g. a Spaces/Mission Control blip) before
+                // concluding this instance was orphaned (started but never properly stopped).
+                self.refreshTimerInactiveStreak += 1
+                os_log("Refresh timer fired while inactive (%d/2)", log: Self.logger, type: .info, self.refreshTimerInactiveStreak)
+                if self.refreshTimerInactiveStreak >= 2 {
+                    os_log("Instance orphaned - tearing down via stopAnimation()", log: Self.logger, type: .info)
+                    self.instanceTimer?.invalidate()
+                    self.instanceTimer = nil
+                    self.stopAnimation()
+                }
+                return
             }
+
+            self.refreshTimerInactiveStreak = 0
+            self.loadMdm()
+            print("view refreshed.")
         }
     }
     
@@ -2324,6 +2269,7 @@ class PeopleScreensaverView: ScreenSaverView {
         scalingValidationCount = 0
         scalingResetCount = 0
         slideLoadRetryCount.removeAll()
+        consecutiveNavigationFailures = 0
         
         // Reset timestamps
         lastScalingTime = Date()
@@ -2381,10 +2327,12 @@ class PeopleScreensaverView: ScreenSaverView {
         Self.animationTimer?.invalidate()
         periodicCleanupTimer?.invalidate()
         scalingResetTimer?.invalidate()
+        errorRecoveryTimer?.invalidate()
         instanceTimer = nil
         instanceAnimationTimer = nil
         periodicCleanupTimer = nil
         scalingResetTimer = nil
+        errorRecoveryTimer = nil
         
         // Clean up memory pressure monitoring
         memoryPressureSource?.cancel()
@@ -2461,24 +2409,59 @@ extension PeopleScreensaverView: WKScriptMessageHandler {
 extension PeopleScreensaverView: WKNavigationDelegate {
     
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        os_log("Navigation failed for slide %d: %{public}@", log: Self.logger, type: .error, currentSlideIndex, error.localizedDescription)
-        
-        // Retry loading the slide
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            self.loadNextSlide()
-        }
+        handleNavigationFailure(error)
     }
-    
+
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        os_log("Navigation failed for slide %d: %{public}@", log: Self.logger, type: .error, currentSlideIndex, error.localizedDescription)
-        
-        // Retry loading the slide
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            self.loadNextSlide()
+        handleNavigationFailure(error)
+    }
+
+    private func handleNavigationFailure(_ error: Error) {
+        consecutiveNavigationFailures += 1
+        os_log("Navigation failed for slide %d (consecutive failure %d/%d): %{public}@",
+               log: Self.logger, type: .error, currentSlideIndex,
+               consecutiveNavigationFailures, maxConsecutiveNavigationFailures,
+               error.localizedDescription)
+
+        guard consecutiveNavigationFailures < maxConsecutiveNavigationFailures else {
+            os_log("Consecutive navigation failures reached threshold, showing error page",
+                   log: Self.logger, type: .error)
+            loadErrorPage()
+            scheduleErrorRecovery()
+            return
+        }
+
+        // Exponential backoff (1s, 2s, 4s, capped) so a real outage doesn't hammer the network/CPU.
+        let backoff = min(pow(2.0, Double(consecutiveNavigationFailures - 1)), 16.0)
+        DispatchQueue.main.asyncAfter(deadline: .now() + backoff) { [weak self] in
+            self?.loadNextSlide()
         }
     }
-    
+
+    private func scheduleErrorRecovery() {
+        guard errorRecoveryTimer == nil else { return } // avoid stacking timers on repeat failures
+        os_log("Scheduling automatic recovery attempt in %.0fs", log: Self.logger, type: .info, errorRecoveryInterval)
+        errorRecoveryTimer = Timer.scheduledTimer(withTimeInterval: errorRecoveryInterval, repeats: false) { [weak self] _ in
+            guard let self = self else { return }
+            self.errorRecoveryTimer = nil
+            os_log("Attempting recovery from error page", log: Self.logger, type: .info)
+            self.loadMdm()
+        }
+    }
+
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        // Reset failure tracking on a real slide load, but not on the error.html file load itself
+        // (otherwise successfully showing the error page would immediately cancel its own recovery timer).
+        if webView.url?.isFileURL != true {
+            if consecutiveNavigationFailures > 0 {
+                os_log("Slide navigation recovered after %d consecutive failure(s)",
+                       log: Self.logger, type: .info, consecutiveNavigationFailures)
+            }
+            consecutiveNavigationFailures = 0
+            errorRecoveryTimer?.invalidate()
+            errorRecoveryTimer = nil
+        }
+
         // Safe JavaScript execution with error handling
         let script = "document.body.style = document.body.style.cssText + \";background: transparent !important;\";"
         webView.evaluateJavaScript(script) { result, error in
