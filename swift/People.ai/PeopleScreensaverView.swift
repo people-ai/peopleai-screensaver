@@ -35,6 +35,11 @@ private let configError = "<html><body><b>Error while loading config file</b></b
 private let noMoreSlidesError = "<html><body><b>No more slides</b></body></html>"
 
 // MARK: - Performance Optimized Screensaver View
+// @objc(PeopleScreensaverView) is required: without it, a plain Swift NSObject subclass is only
+// visible to the Objective-C runtime under its module-qualified name, so Info.plist's
+// NSPrincipalClass (a bare "PeopleScreensaverView" string) would resolve to nil via
+// NSClassFromString and the screensaver would silently fail to load.
+@objc(PeopleScreensaverView)
 class PeopleScreensaverView: ScreenSaverView {
     
     // MARK: - Performance Logging
