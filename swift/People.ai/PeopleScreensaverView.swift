@@ -445,11 +445,29 @@ class PeopleScreensaverView: ScreenSaverView {
         }
     }
     
+    // MARK: - Safe KVC for private/undocumented WebKit preference keys
+    // WKPreferences/WKWebViewConfiguration/WKWebView expose several tuning knobs only as private,
+    // undocumented KVC keys (no public Swift property). Those keys can disappear across
+    // OS/WebKit versions - calling setValue(forKey:) for a key the class no longer recognizes
+    // raises an uncaught NSUnknownKeyException that crashes the whole module load (confirmed via
+    // a real crash on-device: "not key value coding-compliant for the key
+    // allowUniversalAccessFromFileURLs"). responds(to:) never throws, so checking the implied
+    // ObjC setter first lets us skip a key gracefully instead of crashing when it's unsupported.
+    private func safeSetPreference(_ value: Any?, forKey key: String, on object: NSObject) {
+        let setterName = "set\(key.prefix(1).uppercased())\(key.dropFirst()):"
+        guard object.responds(to: NSSelectorFromString(setterName)) else {
+            os_log("Skipping unsupported preference key '%{public}@' on %{public}@ (not KVC-compliant on this OS/WebKit version)",
+                   log: Self.logger, type: .info, key, String(describing: type(of: object)))
+            return
+        }
+        object.setValue(value, forKey: key)
+    }
+
     // MARK: - Optimized WebView Setup
     private func setupWebView() {
         rebuildWebView()
     }
-    
+
     // MARK: - WebView Lifecycle Management
     private func rebuildWebView() {
         // Clean up existing WebView if present
@@ -462,7 +480,7 @@ class PeopleScreensaverView: ScreenSaverView {
         let config = WKWebViewConfiguration()
         
         // Performance optimizations
-        config.setValue(NSNumber(value: false), forKey: "drawsBackground")
+        safeSetPreference(NSNumber(value: false), forKey: "drawsBackground", on: config)
         config.suppressesIncrementalRendering = true
         
         // Shared process pool for better memory management
@@ -482,24 +500,24 @@ class PeopleScreensaverView: ScreenSaverView {
             config.userContentController = userContentController
             
             // Advanced performance optimizations for macOS 15+ (JavaScript enabled for screensaver functionality)
-            config.preferences.setValue(true, forKey: "allowFileAccessFromFileURLs")
-            config.preferences.setValue(false, forKey: "javaScriptCanOpenWindowsAutomatically")
-            config.preferences.setValue(true, forKey: "javaScriptEnabled") // Enable JavaScript for screensaver
-            config.preferences.setValue(false, forKey: "plugInsEnabled")
-            
+            safeSetPreference(true, forKey: "allowFileAccessFromFileURLs", on: config.preferences)
+            safeSetPreference(false, forKey: "javaScriptCanOpenWindowsAutomatically", on: config.preferences)
+            safeSetPreference(true, forKey: "javaScriptEnabled", on: config.preferences) // Enable JavaScript for screensaver
+            safeSetPreference(false, forKey: "plugInsEnabled", on: config.preferences)
+
             // ARM64-specific WebView optimizations for stability
             if Self.isAppleSilicon {
-                config.preferences.setValue(false, forKey: "allowFileAccessFromFileURLs")  // Disable for ARM64 stability
-                config.preferences.setValue(false, forKey: "allowUniversalAccessFromFileURLs")
+                safeSetPreference(false, forKey: "allowFileAccessFromFileURLs", on: config.preferences)  // Disable for ARM64 stability
+                safeSetPreference(false, forKey: "allowUniversalAccessFromFileURLs", on: config.preferences)
                 os_log("ARM64 WebView: Using conservative settings for stability", log: Self.logger, type: .info)
             }
-            
+
             // Add JavaScript error handling
             userContentController.add(self, name: "errorHandler")
         } else if #available(macOS 12.0, *) {
             // Optimizations for macOS 12+
-            config.preferences.setValue(false, forKey: "javaScriptCanOpenWindowsAutomatically")
-            config.preferences.setValue(false, forKey: "plugInsEnabled")
+            safeSetPreference(false, forKey: "javaScriptCanOpenWindowsAutomatically", on: config.preferences)
+            safeSetPreference(false, forKey: "plugInsEnabled", on: config.preferences)
         }
         
         // Create optimized WebView with monitor bounds and ARM64 compatibility
@@ -510,9 +528,9 @@ class PeopleScreensaverView: ScreenSaverView {
         )
         
         // ARM64-specific WebView setup for stability
-        if Self.isAppleSilicon {
-            webView?.setValue(false, forKey: "drawsBackground")
-            webView?.setValue(false, forKey: "drawsTransparentBackground")
+        if Self.isAppleSilicon, let webView = webView {
+            safeSetPreference(false, forKey: "drawsBackground", on: webView)
+            safeSetPreference(false, forKey: "drawsTransparentBackground", on: webView)
             os_log("ARM64 WebView: Applied stability settings", log: Self.logger, type: .info)
         }
         
@@ -1837,7 +1855,11 @@ class PeopleScreensaverView: ScreenSaverView {
     // MARK: - Debug Info Display
     private func setupDebugInfoDisplay() {
         guard Self.debugMode else { return }
-        
+
+        // loadMdm() (and hence this) can run again later (viewRefreshTime, error recovery) -
+        // tear down any previous debug view/timer first instead of leaking a duplicate each time.
+        cleanupDebugMode()
+
         // Create debug info view in bottom left corner
         let debugFrame = NSRect(x: 10, y: 10, width: 300, height: 200)
         debugInfoView = NSTextView(frame: debugFrame)
@@ -2506,9 +2528,14 @@ extension PeopleScreensaverView: WKNavigationDelegate {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 self.performImageUpdate()
             }
-            
-            instanceAnimationTimer = Timer.scheduledTimer(withTimeInterval: TimeInterval((Self.stayOnSlideTime?.intValue ?? 0) + 1), repeats: true) { _ in
-                self.performImageUpdate()
+
+            // Every didFinishNavigation used to create a brand-new repeating timer here without
+            // invalidating the previous one, leaking one perpetual timer (each strongly capturing
+            // self) per navigation - over a long-running session this stacks up and drives
+            // performImageUpdate() far more often than the configured interval intends.
+            instanceAnimationTimer?.invalidate()
+            instanceAnimationTimer = Timer.scheduledTimer(withTimeInterval: TimeInterval((Self.stayOnSlideTime?.intValue ?? 0) + 1), repeats: true) { [weak self] _ in
+                self?.performImageUpdate()
             }
         } else if Self.emptySpaceFillMode == "static" {
             if !Self.emptySpaceFillImage.isEmpty {
