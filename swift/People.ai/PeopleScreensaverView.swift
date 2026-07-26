@@ -58,7 +58,16 @@ class PeopleScreensaverView: ScreenSaverView {
     private var webView: WKWebViewCustom?
     private var textView: NSTextView?
     private var imageView: NSImageView?
-    
+
+    // MARK: - Instance Lifecycle Diagnostics
+    // The extension host can create several PeopleScreensaverView instances per session
+    // (handshake + real, per-display, preview rows) with unbalanced start/stop calls.
+    // A short per-instance tag in every lifecycle log line makes it possible to tell from
+    // `log stream` exactly how many instances exist and whether each one is ever deallocated.
+    private static var liveInstanceCount = 0
+    private let instanceTag = String(UUID().uuidString.prefix(8))
+    private var contentLoadStarted = false
+
     // MARK: - WebView Lifecycle Management
     private var slidesDisplayedSinceLastTeardown: Int = 0
     private let teardownInterval: Int = 20
@@ -78,6 +87,11 @@ class PeopleScreensaverView: ScreenSaverView {
     private var loadingSlides: Set<String> = []
     private var currentSlideIndex: Int = 0
     private var isFirstLoop: Bool = true
+    private var lastObservedSlide: Int = -1
+
+    // MARK: - Dynamic Backdrop Change Detection
+    private var lastBackdropDigest: Int = 0
+    private var backdropUpdatePending: Bool = false
     
     // MARK: - Performance Optimized Timers
     private var instanceTimer: Timer?
@@ -115,6 +129,12 @@ class PeopleScreensaverView: ScreenSaverView {
     private let maxConsecutiveNavigationFailures: Int = 3
     private var errorRecoveryTimer: Timer?
     private let errorRecoveryInterval: TimeInterval = 30.0
+
+    // MARK: - Slow-Load Watchdog (cold network link after long idle)
+    private var loadWatchdogTimer: Timer?
+    private var loadWatchdogAttempts: Int = 0
+    private let maxLoadWatchdogAttempts: Int = 2
+    private let loadWatchdogInterval: TimeInterval = 20.0
     
     // MARK: - Display-Specific Content Zoom
     private var displayContentZoomCache: [String: CGFloat] = [:]
@@ -182,13 +202,18 @@ class PeopleScreensaverView: ScreenSaverView {
     }
     
     private func setupScreensaver() {
+        Self.liveInstanceCount += 1
+        os_log("INSTANCE %{public}@ init (isPreview=%d, frame=%{public}@, live instances=%d)",
+               log: Self.logger, type: .default, instanceTag, isPreview ? 1 : 0,
+               frame.debugDescription, Self.liveInstanceCount)
+
         setupWebView()
         setupNotifications()
         setupInitialState()
         setupMemoryManagement()
         setupPeriodicCleanup()
         setupResolutionIndependence()
-        
+
         // Delayed initialization to prevent race conditions
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
             self.performDelayedInitialization()
@@ -463,6 +488,17 @@ class PeopleScreensaverView: ScreenSaverView {
         object.setValue(value, forKey: key)
     }
 
+    // Call a private BOOL-taking setter SPI if it exists on this OS/WebKit build (never throws;
+    // returns whether the call was made). Used for WebKit knobs that have no public API.
+    @discardableResult
+    private func callBoolSPI(_ selectorName: String, on object: NSObject, value: Bool) -> Bool {
+        let sel = NSSelectorFromString(selectorName)
+        guard object.responds(to: sel) else { return false }
+        typealias SetBoolIMP = @convention(c) (AnyObject, Selector, ObjCBool) -> Void
+        unsafeBitCast(object.method(for: sel), to: SetBoolIMP.self)(object, sel, ObjCBool(value))
+        return true
+    }
+
     // MARK: - Optimized WebView Setup
     private func setupWebView() {
         rebuildWebView()
@@ -481,7 +517,10 @@ class PeopleScreensaverView: ScreenSaverView {
         
         // Performance optimizations
         safeSetPreference(NSNumber(value: false), forKey: "drawsBackground", on: config)
-        config.suppressesIncrementalRendering = true
+        // Paint progressively as content arrives. With suppression on, WebKit renders NOTHING
+        // until the entire Slides page finishes loading (12-18s measured on-device), leaving a
+        // blank webview whose first composite often waits for the next OS redraw event.
+        config.suppressesIncrementalRendering = false
         
         // Shared process pool for better memory management
         config.processPool = WKProcessPool()
@@ -574,7 +613,32 @@ class PeopleScreensaverView: ScreenSaverView {
         config.userContentController.addUserScript(zoomScript)
         
         guard let webView = webView else { return }
-        
+
+        // The wallpaper-hosted screensaver window reports itself as OCCLUDED to WebKit on modern
+        // macOS ("isViewVisible(): ... window occluded 1" in the WebKit activity-state log), so
+        // moments after the first paint WebKit freezes the layer tree, purges its volatile render
+        // layers and throttles the page's JS - the visible symptom is "first slide renders, then
+        // black screen, autoplay never advances". Disable WebKit's window-occlusion detection
+        // (private SPI, existence-checked) so the page keeps rendering while genuinely on-screen.
+        if callBoolSPI("_setWindowOcclusionDetectionEnabled:", on: webView, value: false) {
+            os_log("INSTANCE %{public}@ disabled WebKit window-occlusion detection", log: Self.logger, type: .default, instanceTag)
+        } else {
+            os_log("INSTANCE %{public}@ occlusion-detection SPI unavailable on this OS - page may freeze when window reports occluded", log: Self.logger, type: .error, instanceTag)
+        }
+
+        // Pre-paint background: WKWebView's default background is opaque WHITE, shown for the
+        // whole load. The old transparent-background trick used the "drawsBackground" KVC key,
+        // which no longer exists on modern WebKit (safeSetPreference skips it) - use the current
+        // SPI when present and force black everywhere else so loading looks like a screensaver.
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.black.cgColor
+        if callBoolSPI("_setDrawsBackground:", on: webView, value: false) {
+            os_log("INSTANCE %{public}@ webview made transparent via _setDrawsBackground SPI", log: Self.logger, type: .default, instanceTag)
+        }
+        if #available(macOS 12.0, *) {
+            webView.underPageBackgroundColor = .black
+        }
+
         // Performance-optimized layer setup
         webView.wantsLayer = true
         webView.layer?.contentsGravity = .resizeAspectFill
@@ -751,6 +815,10 @@ class PeopleScreensaverView: ScreenSaverView {
         // Clear any cached retry counts
         slideLoadRetryCount.removeAll()
         refreshTimerInactiveStreak = 0
+        lastObservedSlide = -1
+        loadWatchdogAttempts = 0
+        lastBackdropDigest = 0
+        backdropUpdatePending = false
 
         os_log("Initial state reset completed", log: Self.logger, type: .info)
     }
@@ -1334,13 +1402,42 @@ class PeopleScreensaverView: ScreenSaverView {
     // MARK: - Animation Lifecycle
     override func startAnimation() {
         super.startAnimation()
-        
+
+        os_log("INSTANCE %{public}@ startAnimation (isPreview=%d, hidden=%d, window=%d, webView=%d, alreadyLoaded=%d)",
+               log: Self.logger, type: .default, instanceTag, isPreview ? 1 : 0,
+               isHidden ? 1 : 0, window != nil ? 1 : 0, webView != nil ? 1 : 0,
+               contentLoadStarted ? 1 : 0)
+
         // CRITICAL: Check if we should actually start (prevent background activity)
         guard !isHidden && window != nil else {
-            os_log("Preventing background animation start", log: Self.logger, type: .info)
+            os_log("INSTANCE %{public}@ preventing background animation start", log: Self.logger, type: .info, instanceTag)
             return
         }
-        
+
+        startContentIfNeeded()
+    }
+
+    private func startContentIfNeeded() {
+        // The extension host calls startAnimation more than once per engagement (observed:
+        // twice ~550ms apart with no stopAnimation between). Reloading on every call tears
+        // down the just-rendered page and leaves the screen blank while the duplicate load is
+        // in flight - treat a repeat call on an already-running instance as a no-op resume.
+        guard !contentLoadStarted else {
+            os_log("INSTANCE %{public}@ startAnimation repeated while already running - ignoring duplicate", log: Self.logger, type: .default, instanceTag)
+            return
+        }
+
+        guard !isHidden && window != nil else { return }
+
+        // Self-heal: stopAnimation destroys the webview (to release the WebContent process) and
+        // removes our notification observers, but the host can start the same instance again
+        // afterwards - restore both before loading.
+        if webView == nil {
+            os_log("INSTANCE %{public}@ webView was nil at content start - rebuilding", log: Self.logger, type: .default, instanceTag)
+            rebuildWebView()
+            setupNotifications()
+        }
+
         // CRITICAL: Reset scaling state at startup to prevent persistent zoom issues
         performStartupScalingReset()
 
@@ -1350,12 +1447,40 @@ class PeopleScreensaverView: ScreenSaverView {
         // MEMORY FIX: heavy content load moved here from init/performDelayedInitialization so
         // instances that are created but never started (preview rows, orphaned display
         // instances) never touch the network or schedule a reload timer.
+        contentLoadStarted = true
         if isPreview {
             loadPreviewPlaceholder()
         } else if Self.mdmMode {
             loadMdm()
             checkViewRefreshTime()
             animationTimeInterval = 1.0
+        }
+    }
+
+    // The extension host never sends stopAnimation to instances whose engagement ended - it
+    // just detaches their views and leaves the objects alive (observed: 3 live instances, zero
+    // stopAnimation/deinit calls across a whole session). Window detachment is the one reliable
+    // signal that this instance is no longer being displayed, so treat it as the stop we never
+    // get: full teardown releases the WKWebView/WebContent process and all timers. If the host
+    // later re-engages this instance it broadcasts startAnimation again, and startContentIfNeeded
+    // rebuilds everything from scratch.
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+
+        os_log("INSTANCE %{public}@ viewDidMoveToWindow (window=%d, isAnimating=%d, contentLoaded=%d)",
+               log: Self.logger, type: .default, instanceTag,
+               window != nil ? 1 : 0, isAnimating ? 1 : 0, contentLoadStarted ? 1 : 0)
+
+        if window == nil {
+            if contentLoadStarted || isAnimating {
+                os_log("INSTANCE %{public}@ detached from window - tearing down", log: Self.logger, type: .default, instanceTag)
+                stopAnimation()
+            }
+        } else if isAnimating && !contentLoadStarted {
+            // Reattached while the host still considers us animating - reload content now,
+            // since no further startAnimation may arrive for this engagement.
+            os_log("INSTANCE %{public}@ reattached to window while animating - restarting content", log: Self.logger, type: .default, instanceTag)
+            startContentIfNeeded()
         }
     }
 
@@ -1451,11 +1576,15 @@ class PeopleScreensaverView: ScreenSaverView {
         // Remove from superview
         webView.removeFromSuperview()
         
-        // Clear all WebView data
+        // Clear WebView data, but KEEP the HTTP disk cache: purging it here forced a full cold
+        // re-download of the Slides app (~20s of black screen) on the next engagement, since
+        // this cleanup now runs every time the view is detached from its window.
         if #available(macOS 10.15, *) {
             let dataStore = webView.configuration.websiteDataStore
-            dataStore.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: Date(timeIntervalSince1970: 0)) {
-                os_log("WebView data cleared", log: Self.logger, type: .info)
+            var typesToClear = WKWebsiteDataStore.allWebsiteDataTypes()
+            typesToClear.remove(WKWebsiteDataTypeDiskCache)
+            dataStore.removeData(ofTypes: typesToClear, modifiedSince: Date(timeIntervalSince1970: 0)) {
+                os_log("WebView data cleared (disk cache preserved)", log: Self.logger, type: .info)
             }
         }
         
@@ -1467,9 +1596,12 @@ class PeopleScreensaverView: ScreenSaverView {
     
     override func stopAnimation() {
         super.stopAnimation()
-        
-        os_log("Stopping animation with comprehensive cleanup", log: Self.logger, type: .info)
-        
+
+        os_log("INSTANCE %{public}@ stopAnimation - comprehensive cleanup", log: Self.logger, type: .default, instanceTag)
+
+        // Allow a genuine later restart to load content again (see startAnimation's guard).
+        contentLoadStarted = false
+
         // CRITICAL: Stop all WebView activity immediately
         stopWebViewActivity()
         
@@ -1480,6 +1612,7 @@ class PeopleScreensaverView: ScreenSaverView {
         instanceAnimationTimer = nil
         errorRecoveryTimer?.invalidate()
         errorRecoveryTimer = nil
+        cancelLoadWatchdog(resetAttempts: true)
 
         // Disable all background processes
         disableBackgroundProcesses()
@@ -1569,6 +1702,56 @@ class PeopleScreensaverView: ScreenSaverView {
         }
     }
     
+    // MARK: - Dynamic Backdrop Change Detection
+    // The published-deck autoplay advances slides purely inside its own JS - it never updates
+    // the URL (so ?slide=N polling can't see flips) and fires no native callback. And the host
+    // engine does not reliably drive animateOneFrame on modern macOS, so this must run on our
+    // OWN repeating timer, not the screensaver animation tick. The only player-agnostic flip
+    // signal is the pixels themselves: probe a tiny snapshot ~3x/sec, and when its digest
+    // changes (slide flipped), refresh the blurred "extend" backdrop after a short settle.
+    // Constant sub-second lag, unlike the free-running 16s timer that drifted ~1s further out
+    // of phase with every ~15s slide.
+    private func startBackdropProbeTimer() {
+        instanceAnimationTimer?.invalidate()
+        instanceAnimationTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] _ in
+            self?.checkForSlideVisualChange()
+        }
+    }
+
+    private func checkForSlideVisualChange() {
+        guard Self.emptySpaceFillMode == "dynamic",
+              !backdropUpdatePending,
+              window != nil, !isHidden,
+              let webView = webView else { return }
+
+        let probeConfig = WKSnapshotConfiguration()
+        probeConfig.snapshotWidth = 48 // tiny probe - we only need a change signal, not an image
+        webView.takeSnapshot(with: probeConfig) { [weak self] image, error in
+            guard let self = self, error == nil,
+                  let tiffData = image?.tiffRepresentation else { return }
+
+            // Hash ALL bytes. Data.hashValue only samples a short prefix (~80 bytes) - for a
+            // TIFF that's just the header, identical for every same-sized snapshot, so it can
+            // never detect a slide change.
+            var hasher = Hasher()
+            tiffData.withUnsafeBytes { hasher.combine(bytes: $0) }
+            let digest = hasher.finalize()
+
+            if digest != self.lastBackdropDigest {
+                let isFirstProbe = self.lastBackdropDigest == 0
+                self.lastBackdropDigest = digest
+                guard !self.backdropUpdatePending, !isFirstProbe else { return }
+                self.backdropUpdatePending = true
+                os_log("Backdrop: slide flip detected, refreshing extend backdrop", log: Self.logger, type: .default)
+                // Let the slide transition settle before sampling the full-size backdrop.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                    self.backdropUpdatePending = false
+                    self.performImageUpdate()
+                }
+            }
+        }
+    }
+
     func hasConfigureSheet() -> Bool {
         return false
     }
@@ -1660,7 +1843,7 @@ class PeopleScreensaverView: ScreenSaverView {
         os_log("Loading slide %d (attempt %d): %{public}@", log: Self.logger, type: .info, currentSlideIndex, retryCount + 1, nextSlideURL)
         
         if let url = URL(string: autoplayURL) {
-            let request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30.0)
+            let request = URLRequest(url: url, cachePolicy: .useProtocolCachePolicy, timeoutInterval: 30.0)
             webView?.navigationDelegate = self
             
             // ARM64-specific loading optimization
@@ -1682,10 +1865,12 @@ class PeopleScreensaverView: ScreenSaverView {
             os_log("Failed to create URL for slide %d: %{public}@", log: Self.logger, type: .error, currentSlideIndex, autoplayURL)
         }
         
-        // Start background loading of next slide
-        startBackgroundLoadingOfNextSlide()
+        // NOTE: the background "preload next slide" pipeline is intentionally NOT started here.
+        // It re-downloaded the same 7.2MB deck page into CacheManager, whose contents are never
+        // read back for rendering - pure duplicate bandwidth competing with the visible load
+        // (measured: deck fetch alone takes ~25s on a slow link, and this doubled it).
     }
-    
+
     // MARK: - Debug
     private func showDebugMessage(_ msg: String) {
         let str = "\nSlides: \(msg)"
@@ -1733,14 +1918,22 @@ class PeopleScreensaverView: ScreenSaverView {
             print("People.AI loading first slide with URL: \(instanceCurrentLink)")
             print("People.AI slide time: \(Self.stayOnSlideTime ?? 0) seconds")
             
+            showLoadingBackdropIfConfigured()
+
             if let url = URL(string: instanceCurrentLink) {
-                let request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30.0)
+                // Standard HTTP caching, NOT .reloadIgnoringLocalCacheData: bypassing the cache
+                // forced a full cold re-download of the whole Slides app (~20s of black screen
+                // measured on-device) on every engagement, hourly refresh, and webview rebuild.
+                // Deck freshness is still handled by the server's cache validators plus the
+                // periodic viewRefreshTime reload.
+                let request = URLRequest(url: url, cachePolicy: .useProtocolCachePolicy, timeoutInterval: 30.0)
                 webView?.navigationDelegate = self
                 webView?.load(request)
+                startLoadWatchdog()
             }
-            
-            startBackgroundLoadingOfNextSlide()
-            
+
+            // NOTE: startBackgroundLoadingOfNextSlide() intentionally not called - see loadNextSlide.
+
             if zoom?.boolValue == true {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                     self.updateWebViewForCurrentDisplay()
@@ -1772,9 +1965,57 @@ class PeopleScreensaverView: ScreenSaverView {
         if let strSlide = queryParams["slide"], let slide = Int(strSlide) {
             UserDefaults.standard.set(slide, forKey: currentSlideKey)
             UserDefaults.standard.synchronize()
+
+            // Slide-change detection: the Slides player updates ?slide=N as its own autoplay
+            // advances, and this poll runs every animation frame (1s). Refresh the dynamic-mode
+            // backdrop from here, synchronized to the actual flip - the old free-running 16s
+            // timer drifted out of phase with the ~15s autoplay, so the blurred "extend" backdrop
+            // lagged the visible slide by a little more every cycle.
+            if slide != lastObservedSlide {
+                lastObservedSlide = slide
+                if Self.emptySpaceFillMode == "dynamic" {
+                    // Give the new slide's transition a beat to finish before sampling it.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+                        self?.performImageUpdate()
+                    }
+                }
+            }
         }
     }
     
+    // MARK: - Slow-Load Watchdog
+    // After hours of idle, the first big transfer can crawl on a cold network link (power-save /
+    // roaming / connection ramp-up) while an immediate manual retry flies on the warmed link
+    // (observed: first load stuck 30s+, exit-and-rerun loaded in 5s). Automate that retry: if
+    // the deck hasn't finished loading in loadWatchdogInterval, cancel and reload. After
+    // maxLoadWatchdogAttempts reloads, let the final attempt run to completion instead of
+    // escalating - a genuinely slow-but-working network should still eventually show slides.
+    private func startLoadWatchdog() {
+        loadWatchdogTimer?.invalidate()
+        guard loadWatchdogAttempts < maxLoadWatchdogAttempts else { return }
+
+        loadWatchdogTimer = Timer.scheduledTimer(withTimeInterval: loadWatchdogInterval, repeats: false) { [weak self] _ in
+            guard let self = self else { return }
+            self.loadWatchdogTimer = nil
+            guard self.isScreensaverActive() else { return }
+
+            self.loadWatchdogAttempts += 1
+            os_log("Load watchdog: deck not finished after %.0fs, reloading (attempt %d/%d)",
+                   log: Self.logger, type: .default, self.loadWatchdogInterval,
+                   self.loadWatchdogAttempts, self.maxLoadWatchdogAttempts)
+            self.webView?.stopLoading()
+            self.loadMdm()
+        }
+    }
+
+    private func cancelLoadWatchdog(resetAttempts: Bool) {
+        loadWatchdogTimer?.invalidate()
+        loadWatchdogTimer = nil
+        if resetAttempts {
+            loadWatchdogAttempts = 0
+        }
+    }
+
     private func checkViewRefreshTime() {
         // Self-protecting: refuse to schedule a repeating reload timer for an instance that
         // isn't actually the active screensaver, regardless of what caller reaches this.
@@ -2114,6 +2355,10 @@ class PeopleScreensaverView: ScreenSaverView {
     }
     
     private func performImageUpdate() {
+        // Detached/idle instances must not keep doing per-interval snapshot+blur work
+        // (observed: leaked instances kept snapshotting every 16s with no window at all).
+        guard window != nil, !isHidden else { return }
+
         if #available(macOS 10.13, *) {
             let wkSnapshotConfig = WKSnapshotConfiguration()
             wkSnapshotConfig.snapshotWidth = NSNumber(value: Int(frame.size.width))
@@ -2231,6 +2476,34 @@ class PeopleScreensaverView: ScreenSaverView {
         )
     }
     
+    // Show the configured emptySpaceFillImage as the backdrop right away while the Slides page
+    // is still loading, instead of a bare black screen (the webview is transparent until first
+    // paint, so the imageView beneath it shows through). Loads off the main thread and never
+    // clobbers an image that's already showing (e.g. dynamic-mode blur snapshots on a reload).
+    private func showLoadingBackdropIfConfigured() {
+        guard Self.emptySpaceFillMode != "none",
+              !Self.emptySpaceFillImage.isEmpty,
+              let imageURL = URL(string: Self.emptySpaceFillImage) else { return }
+
+        if imageView == nil {
+            setupOptimizedImageView()
+        }
+        guard imageView?.image == nil else { return }
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let image = NSImage(contentsOf: imageURL) else {
+                os_log("Loading backdrop image failed: %{public}@", log: PeopleScreensaverView.logger, type: .error, Self.emptySpaceFillImage)
+                return
+            }
+            DispatchQueue.main.async {
+                guard let self = self, self.imageView?.image == nil else { return }
+                self.imageView?.image = image
+                self.imageView?.imageScaling = .scaleAxesIndependently
+                os_log("Loading backdrop shown while Slides page loads", log: PeopleScreensaverView.logger, type: .info)
+            }
+        }
+    }
+
     private func setImageBack() {
         if imageView == nil {
             setupOptimizedImageView()
@@ -2343,8 +2616,10 @@ class PeopleScreensaverView: ScreenSaverView {
     
     // MARK: - Optimized Cleanup
     deinit {
-        os_log("Screensaver deinit started", log: Self.logger, type: .info)
-        
+        Self.liveInstanceCount -= 1
+        os_log("INSTANCE %{public}@ deinit (live instances remaining=%d)",
+               log: Self.logger, type: .default, instanceTag, Self.liveInstanceCount)
+
         // CRITICAL: Stop all WebView activity first
         stopWebViewActivity()
         
@@ -2355,11 +2630,13 @@ class PeopleScreensaverView: ScreenSaverView {
         periodicCleanupTimer?.invalidate()
         scalingResetTimer?.invalidate()
         errorRecoveryTimer?.invalidate()
+        loadWatchdogTimer?.invalidate()
         instanceTimer = nil
         instanceAnimationTimer = nil
         periodicCleanupTimer = nil
         scalingResetTimer = nil
         errorRecoveryTimer = nil
+        loadWatchdogTimer = nil
         
         // Clean up memory pressure monitoring
         memoryPressureSource?.cancel()
@@ -2487,6 +2764,7 @@ extension PeopleScreensaverView: WKNavigationDelegate {
             consecutiveNavigationFailures = 0
             errorRecoveryTimer?.invalidate()
             errorRecoveryTimer = nil
+            cancelLoadWatchdog(resetAttempts: true)
         }
 
         // Safe JavaScript execution with error handling
@@ -2516,11 +2794,10 @@ extension PeopleScreensaverView: WKNavigationDelegate {
             os_log("Slide %d loaded successfully, retry count reset", log: Self.logger, type: .info, currentSlideIndex)
         }
         
-        if isFirstLoop && currentSlideIndex < slides.count {
-            let currentSlideURL = slides[currentSlideIndex]
-            cacheCurrentSlideContent(currentSlideURL)
-        }
-        
+        // NOTE: cacheCurrentSlideContent() intentionally not called - the CacheManager contents
+        // are never read back for rendering, and serializing the whole DOM here cost CPU on
+        // every first-loop navigation for nothing.
+
         webView.isHidden = false
         webView.alphaValue = 1.0
         
@@ -2529,14 +2806,9 @@ extension PeopleScreensaverView: WKNavigationDelegate {
                 self.performImageUpdate()
             }
 
-            // Every didFinishNavigation used to create a brand-new repeating timer here without
-            // invalidating the previous one, leaking one perpetual timer (each strongly capturing
-            // self) per navigation - over a long-running session this stacks up and drives
-            // performImageUpdate() far more often than the configured interval intends.
-            instanceAnimationTimer?.invalidate()
-            instanceAnimationTimer = Timer.scheduledTimer(withTimeInterval: TimeInterval((Self.stayOnSlideTime?.intValue ?? 0) + 1), repeats: true) { [weak self] _ in
-                self?.performImageUpdate()
-            }
+            // Flip-synchronized backdrop refresh (replaces the old free-running
+            // stayOnSlideTime+1 timer, which drifted out of phase with the player's autoplay).
+            startBackdropProbeTimer()
         } else if Self.emptySpaceFillMode == "static" {
             if !Self.emptySpaceFillImage.isEmpty {
                 setImageBack()
